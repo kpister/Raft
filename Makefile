@@ -2,5 +2,5 @@
 all:	proto
 
 proto:
-	protoc --go_out=. kvstore/*.proto
-	protoc --go_out=. chaosmonkey/*.proto
+	protoc -I chaosmonkey -I${GOPATH}/src --go_out=plugins=grpc:chaosmonkey chaosmonkey/chaosmonkey.proto
+	protoc -I kvstore -I${GOPATH}/src --go_out=plugins=grpc:kvstore kvstore/kvstore.proto
