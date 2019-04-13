@@ -1,54 +1,64 @@
 package main
 
 import (
-    "log"
-    "fmt"
-    "net"
-    "context"
+	"context"
+	"fmt"
+	"log"
+	"net"
 
-    "google.golang.org/grpc"
-    kv "github.com/kpister/raft/kvstore"
+	kv "github.com/kpister/raft/kvstore"
+	"google.golang.org/grpc"
 )
 
-type node struct{}
+type node struct {
+	Dict map[string]string
+}
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
-    fmt.Printf("Get Request recieved for key: %s", in.Key)
-    // get value @ key
-    //v := ...
-    v := "1"
+	fmt.Printf("Get Request recieved for key: %s\n", in.Key)
+	// get value @ key
+	//v := ...
+	v, ok := n.Dict[in.Key]
 
-    // set return code
-    r := kv.ReturnCode_SUCCESS
-    return &kv.GetResponse{Value: v, Ret: r}, nil
+	var r kv.ReturnCode
+	if ok {
+		r = kv.ReturnCode_SUCCESS
+	} else {
+		r = kv.ReturnCode_FAILURE
+	}
+
+	return &kv.GetResponse{Value: v, Ret: r}, nil
 }
 
 func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, error) {
-    fmt.Printf("Put Request recieved: set %s = %d", in.Key, in.Value)
-    // set in.Key := in.Value
+	fmt.Printf("Put Request recieved: set %s = %s\n", in.Key, in.Value)
+	// set in.Key := in.Value
+	n.Dict[in.Key] = in.Value
 
-    // set return code
-    r := kv.ReturnCode_SUCCESS
-    return &kv.PutResponse{Ret: r}, nil
+	// set return code
+	r := kv.ReturnCode_SUCCESS
+	return &kv.PutResponse{Ret: r}, nil
 }
 
 func newNode() *node {
-    return &node{}
+	return &node{
+		Dict: make(map[string]string),
+	}
 }
 
 const (
-    port = 5000
+	port = 5000
 )
 
 func main() {
-    var opts []grpc.ServerOption
+	var opts []grpc.ServerOption
 
-    lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
-    if err != nil {
-        log.Fatalf("Failed to listen: %v", err)
-    }
+	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
+	if err != nil {
+		log.Fatalf("Failed to listen: %v", err)
+	}
 
-    grpcServer := grpc.NewServer(opts...)
-    kv.RegisterKeyValueStoreServer(grpcServer, newNode())
-    grpcServer.Serve(lis)
+	grpcServer := grpc.NewServer(opts...)
+	kv.RegisterKeyValueStoreServer(grpcServer, newNode())
+	grpcServer.Serve(lis)
 }

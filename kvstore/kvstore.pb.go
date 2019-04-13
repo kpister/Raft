@@ -8,8 +8,6 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -297,17 +295,6 @@ func (c *keyValueStoreClient) Put(ctx context.Context, in *PutRequest, opts ...g
 type KeyValueStoreServer interface {
 	Get(context.Context, *GetRequest) (*GetResponse, error)
 	Put(context.Context, *PutRequest) (*PutResponse, error)
-}
-
-// UnimplementedKeyValueStoreServer can be embedded to have forward compatible implementations.
-type UnimplementedKeyValueStoreServer struct {
-}
-
-func (*UnimplementedKeyValueStoreServer) Get(ctx context.Context, req *GetRequest) (*GetResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
-}
-func (*UnimplementedKeyValueStoreServer) Put(ctx context.Context, req *PutRequest) (*PutResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Put not implemented")
 }
 
 func RegisterKeyValueStoreServer(s *grpc.Server, srv KeyValueStoreServer) {

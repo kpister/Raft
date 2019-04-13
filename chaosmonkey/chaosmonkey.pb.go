@@ -8,8 +8,6 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -299,17 +297,6 @@ func (c *chaosMonkeyClient) UpdateValue(ctx context.Context, in *MatValue, opts 
 type ChaosMonkeyServer interface {
 	UploadMatrix(context.Context, *ConnMatrix) (*Status, error)
 	UpdateValue(context.Context, *MatValue) (*Status, error)
-}
-
-// UnimplementedChaosMonkeyServer can be embedded to have forward compatible implementations.
-type UnimplementedChaosMonkeyServer struct {
-}
-
-func (*UnimplementedChaosMonkeyServer) UploadMatrix(ctx context.Context, req *ConnMatrix) (*Status, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UploadMatrix not implemented")
-}
-func (*UnimplementedChaosMonkeyServer) UpdateValue(ctx context.Context, req *MatValue) (*Status, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateValue not implemented")
 }
 
 func RegisterChaosMonkeyServer(s *grpc.Server, srv ChaosMonkeyServer) {
