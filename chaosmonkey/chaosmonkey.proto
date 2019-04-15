@@ -21,10 +21,12 @@ message ConnMatrix {
         repeated float vals = 1;
     }
     repeated MatRow rows = 1;
+    int32 from = 2;
 }
 
 message MatValue {
     int32 row = 1;
     int32 col = 2;
     float val = 3;
+    int32 from = 4;
 }
