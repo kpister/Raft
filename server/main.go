@@ -57,26 +57,31 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 				continue
 			}
 
-			log.Printf("Broadcast put request to %s\n", n.ServersAddr[i])
-			// ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			// defer cancel()
-			in.From = int32(n.ServerIndex)
+			go func(idx int) {
+				log.Printf("Broadcast put request to %s\n", n.ServersAddr[idx])
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				in.From = int32(n.ServerIndex)
 
-			res, err := n.ServersKvClient[i].Put(ctx, in)
-			errStatus := status.Convert(err)
-			switch errStatus.Code() {
-			case codes.OK:
-				fmt.Printf("Status code: %d\n", res.Ret)
-				break
-			case codes.Canceled:
-				log.Println("Put operation failed: the message was dropped")
-				break
-			case codes.Unavailable:
-				log.Println("Put operation failed: Cannot connect to the replicate")
-				break
-			default:
-				log.Printf("Put operation failed: %v\n", errStatus.Code())
-			}
+				res, err := n.ServersKvClient[idx].Put(ctx, in)
+				errStatus := status.Convert(err)
+				switch errStatus.Code() {
+				case codes.OK:
+					fmt.Printf("[%d] Status code: %d\n", idx, res.Ret)
+					break
+				case codes.Canceled:
+					log.Printf("[%d] Put operation failed: the message was dropped\n", idx)
+					break
+				case codes.DeadlineExceeded:
+					log.Printf("[%d] Put operation failed: the message was dropped\n", idx)
+					break
+				case codes.Unavailable:
+					log.Printf("[%d] Put operation failed: Cannot connect to the replicate\n", idx)
+					break
+				default:
+					log.Printf("[%d] Put operation failed: %v\n", idx, errStatus.Code())
+				}
+			}(i)
 		}
 	} else {
 		// decide if the message should be dropped
