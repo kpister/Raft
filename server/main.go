@@ -1,10 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -20,11 +21,10 @@ import (
 )
 
 type node struct {
+	ID              int
 	Dict            map[string]string
-	NServers        int
 	Chaos           [][]float32
 	ServersAddr     []string
-	ServerIndex     int
 	ServersKvClient []kv.KeyValueStoreClient
 	ServersCmClient []cm.ChaosMonkeyClient
 }
@@ -52,8 +52,8 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 	if in.From < 0 {
 		n.Dict[in.Key] = in.Value
 
-		for i := 0; i < n.NServers; i++ {
-			if i == n.ServerIndex {
+		for i := 0; i < len(n.ServersAddr); i++ {
+			if i == n.ID {
 				continue
 			}
 
@@ -61,7 +61,7 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 				log.Printf("Broadcast put request to %s\n", n.ServersAddr[idx])
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				in.From = int32(n.ServerIndex)
+				in.From = int32(n.ID)
 
 				res, err := n.ServersKvClient[idx].Put(ctx, in)
 				errStatus := status.Convert(err)
@@ -86,9 +86,9 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 	} else {
 		// decide if the message should be dropped
 		r := rand.Float32()
-		log.Printf("random: %f, drop prob: %f\n", r, n.Chaos[in.From][n.ServerIndex])
-		if r < n.Chaos[in.From][n.ServerIndex] {
-			log.Printf("Message is dropped: %f\n", n.Chaos[in.From][n.ServerIndex])
+		log.Printf("random: %f, drop prob: %f\n", r, n.Chaos[in.From][n.ID])
+		if r < n.Chaos[in.From][n.ID] {
+			log.Printf("Message is dropped: %f\n", n.Chaos[in.From][n.ID])
 			time.Sleep(10 * time.Second)
 		} else {
 			n.Dict[in.Key] = in.Value
@@ -109,13 +109,13 @@ func (n *node) UploadMatrix(ctx context.Context, mat *cm.ConnMatrix) (*cm.Status
 	fmt.Println(n.Chaos)
 
 	if mat.From < 0 {
-		for i := 0; i < n.NServers; i++ {
-			if i == n.ServerIndex {
+		for i := 0; i < len(n.ServersAddr); i++ {
+			if i == n.ID {
 				continue
 			}
 
 			log.Printf("Broadcast upload matrix to %s\n", n.ServersAddr[i])
-			mat.From = int32(n.ServerIndex)
+			mat.From = int32(n.ID)
 
 			res, err := n.ServersCmClient[i].UploadMatrix(ctx, mat)
 			if err != nil {
@@ -134,13 +134,13 @@ func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, 
 	fmt.Println(n.Chaos)
 
 	if matv.From < 0 {
-		for i := 0; i < n.NServers; i++ {
-			if i == n.ServerIndex {
+		for i := 0; i < len(n.ServersAddr); i++ {
+			if i == n.ID {
 				continue
 			}
 
 			log.Printf("Broadcast update matrix value to %s\n", n.ServersAddr[i])
-			matv.From = int32(n.ServerIndex)
+			matv.From = int32(n.ID)
 
 			res, err := n.ServersCmClient[i].UpdateValue(ctx, matv)
 			if err != nil {
@@ -155,8 +155,8 @@ func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, 
 }
 
 func (n *node) ConnectServers() {
-	for i := 0; i < n.NServers; i++ {
-		if i == n.ServerIndex {
+	for i := 0; i < len(n.ServersAddr); i++ {
+		if i == n.ID {
 			continue
 		}
 
@@ -170,72 +170,68 @@ func (n *node) ConnectServers() {
 	}
 }
 
-func newNode(serversAddr []string, serverIndex int) *node {
-	n := len(serversAddr)
+func (n *node) initialize() {
+	net_size := len(n.ServersAddr)
 
 	// initialize choasmonkey matrix with drop probability 0
-	mat := make([][]float32, n)
-	for i := 0; i < n; i++ {
-		mat[i] = make([]float32, n)
-		for j := 0; j < n; j++ {
+	mat := make([][]float32, net_size)
+	for i := 0; i < net_size; i++ {
+		mat[i] = make([]float32, net_size)
+		for j := 0; j < net_size; j++ {
 			mat[i][j] = 0.0
 		}
 	}
 
-	return &node{
-		Dict:            make(map[string]string),
-		NServers:        n,
-		Chaos:           mat,
-		ServersAddr:     serversAddr,
-		ServerIndex:     serverIndex,
-		ServersKvClient: make([]kv.KeyValueStoreClient, n),
-		ServersCmClient: make([]cm.ChaosMonkeyClient, n),
-	}
+	n.Chaos = mat
+	n.Dict = make(map[string]string)
+	n.ServersKvClient = make([]kv.KeyValueStoreClient, net_size)
+	n.ServersCmClient = make([]cm.ChaosMonkeyClient, net_size)
 }
 
-func readConfig(configPath string) []string {
-	configFp, err := os.Open(configPath)
-	if err != nil {
-		log.Fatalf("Open config file error: %v\n", err)
-	}
-	defer configFp.Close()
-
-	scanner := bufio.NewScanner(configFp)
-	var addrs []string
-	for scanner.Scan() {
-		addr := strings.TrimSpace(scanner.Text())
-		addrs = append(addrs, addr)
-	}
-
-	return addrs
-}
-
-var configPath string
-var serverIndex int
+var (
+	server     node
+	configFile = flag.String("config", "cfg.json", "the file to read the configuration from")
+	help       = flag.Bool("h", false, "for usage")
+)
 
 func init() {
-	flag.StringVar(&configPath, "config", "config.txt", "path of the config file")
-	flag.IntVar(&serverIndex, "srv_idx", 0, "index of the server")
+	flag.Parse()
+
+	if *help {
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
+
+	readConfig(*configFile)
+}
+
+func readConfig(configFile string) {
+	configData, err := ioutil.ReadFile(configFile)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	err = json.Unmarshal(configData, &server)
+	server.initialize()
+
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func main() {
 	var opts []grpc.ServerOption
 
-	flag.Parse()
-
-	serversAddr := readConfig(configPath)
-
-	lis, err := net.Listen("tcp", serversAddr[serverIndex])
+	lis, err := net.Listen("tcp", ":"+strings.Split(server.ServersAddr[server.ID], ":")[1])
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
 	grpcServer := grpc.NewServer(opts...)
-	node := newNode(serversAddr, serverIndex)
-	kv.RegisterKeyValueStoreServer(grpcServer, node)
-	cm.RegisterChaosMonkeyServer(grpcServer, node)
-	node.ConnectServers()
+	kv.RegisterKeyValueStoreServer(grpcServer, &server)
+	cm.RegisterChaosMonkeyServer(grpcServer, &server)
+	server.ConnectServers()
 
-	log.Printf("Listening on %s\n", node.ServersAddr[node.ServerIndex])
+	log.Printf("Listening on %s\n", server.ServersAddr[server.ID])
 	grpcServer.Serve(lis)
 }
