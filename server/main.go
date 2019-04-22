@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -30,14 +31,16 @@ type node struct {
 }
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
-	fmt.Printf("Get Request recieved for key: %s\n", in.Key)
+	log.Printf("GET:%s\n", in.Key)
 	// get value @ key
 	v, ok := n.Dict[in.Key]
 
 	var r kv.ReturnCode
 	if ok {
+		log.Printf("GET success:%s\n", in.Key)
 		r = kv.ReturnCode_SUCCESS
 	} else {
+		log.Printf("GET failed:%s\n", in.Key)
 		r = kv.ReturnCode_FAILURE
 	}
 
@@ -45,7 +48,7 @@ func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, err
 }
 
 func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, error) {
-	fmt.Printf("Put Request recieved: set %s = %s\n", in.Key, in.Value)
+	fmt.Printf("PUT:%s, %s\n", in.Key, in.Value)
 
 	// put value to other replicates
 	// from == -1 if the request is from client, not other replicates
@@ -58,39 +61,39 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 			}
 
 			go func(idx int) {
-				log.Printf("Broadcast put request to %s\n", n.ServersAddr[idx])
+				log.Printf("BROADCAST request:%s\n", n.ServersAddr[idx])
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				in.From = int32(n.ServerIndex)
 
-				res, err := n.ServersKvClient[idx].Put(ctx, in)
+				_, err := n.ServersKvClient[idx].Put(ctx, in)
 				errStatus := status.Convert(err)
 				switch errStatus.Code() {
 				case codes.OK:
-					fmt.Printf("[%d] Status code: %d\n", idx, res.Ret)
+					fmt.Printf("BROADCAST_PUT success:%s\n", n.ServersAddr[idx])
 					break
 				case codes.Canceled:
-					log.Printf("[%d] Put operation failed: the message was dropped\n", idx)
+					log.Printf("BROADCAST_PUT dropped:%s\n", n.ServersAddr[idx])
 					break
 				case codes.DeadlineExceeded:
-					log.Printf("[%d] Put operation failed: the message was dropped\n", idx)
+					log.Printf("BROADCAST_PUT dropped:%s\n", n.ServersAddr[idx])
 					break
 				case codes.Unavailable:
-					log.Printf("[%d] Put operation failed: Cannot connect to the replicate\n", idx)
+					log.Printf("BROADCAST_PUT conn failed:%s\n", n.ServersAddr[idx])
 					break
 				default:
-					log.Printf("[%d] Put operation failed: %v\n", idx, errStatus.Code())
+					log.Printf("BROADCAST_PUT failed:%s\n", n.ServersAddr[idx])
 				}
 			}(i)
 		}
 	} else {
 		// decide if the message should be dropped
 		r := rand.Float32()
-		log.Printf("random: %f, drop prob: %f\n", r, n.Chaos[in.From][n.ServerIndex])
 		if r < n.Chaos[in.From][n.ServerIndex] {
-			log.Printf("Message is dropped: %f\n", n.Chaos[in.From][n.ServerIndex])
+			log.Printf("DROP_PUT:%f\n", n.Chaos[in.From][n.ServerIndex])
 			time.Sleep(10 * time.Second)
 		} else {
+			fmt.Printf("PUT_BROADCAST:%s, %s\n", in.Key, in.Value)
 			n.Dict[in.Key] = in.Value
 		}
 	}
@@ -160,9 +163,10 @@ func (n *node) ConnectServers() {
 			continue
 		}
 
+		log.Printf("Connecting to %s\n", n.ServersAddr[i])
 		conn, err := grpc.Dial(n.ServersAddr[i], grpc.WithInsecure())
 		if err != nil {
-			log.Fatalf("Failed to connect: %v\n", err)
+			log.Printf("Failed to connect %s: %v\n", n.ServersAddr[i], err)
 		}
 
 		n.ServersKvClient[i] = kv.NewKeyValueStoreClient(conn)
@@ -219,6 +223,15 @@ func init() {
 }
 
 func main() {
+	// log setup
+	f, err := os.OpenFile("log/"+time.Now().Format("2006.01.02_15:04:05.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatalf("Open log file error: %v\n", err)
+	}
+	defer f.Close()
+	mw := io.MultiWriter(os.Stderr, f)
+	log.SetOutput(mw)
+
 	var opts []grpc.ServerOption
 
 	flag.Parse()
