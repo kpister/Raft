@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -26,18 +27,19 @@ type node struct {
 	Chaos           [][]float32
 	ServersAddr     []string
 	ServersKvClient []kv.KeyValueStoreClient
-	ServersCmClient []cm.ChaosMonkeyClient
 }
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
-	fmt.Printf("Get Request recieved for key: %s\n", in.Key)
+	log.Printf("GET:%s\n", in.Key)
 	// get value @ key
 	v, ok := n.Dict[in.Key]
 
 	var r kv.ReturnCode
 	if ok {
+		log.Printf("GET success:%s\n", in.Key)
 		r = kv.ReturnCode_SUCCESS
 	} else {
+		log.Printf("GET failed:%s\n", in.Key)
 		r = kv.ReturnCode_FAILURE
 	}
 
@@ -45,7 +47,7 @@ func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, err
 }
 
 func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, error) {
-	fmt.Printf("Put Request recieved: set %s = %s\n", in.Key, in.Value)
+	log.Printf("PUT:%s %s\n", in.Key, in.Value)
 
 	// put value to other replicates
 	// from == -1 if the request is from client, not other replicates
@@ -58,39 +60,39 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 			}
 
 			go func(idx int) {
-				log.Printf("Broadcast put request to %s\n", n.ServersAddr[idx])
+				log.Printf("BC_PUT request:%s\n", n.ServersAddr[idx])
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				in.From = int32(n.ID)
 
-				res, err := n.ServersKvClient[idx].Put(ctx, in)
+				_, err := n.ServersKvClient[idx].Put(ctx, in)
 				errStatus := status.Convert(err)
 				switch errStatus.Code() {
 				case codes.OK:
-					fmt.Printf("[%d] Status code: %d\n", idx, res.Ret)
+					log.Printf("BC_PUT success:%s\n", n.ServersAddr[idx])
 					break
 				case codes.Canceled:
-					log.Printf("[%d] Put operation failed: the message was dropped\n", idx)
+					log.Printf("BC_PUT dropped:%s\n", n.ServersAddr[idx])
 					break
 				case codes.DeadlineExceeded:
-					log.Printf("[%d] Put operation failed: the message was dropped\n", idx)
+					log.Printf("BC_PUT dropped:%s\n", n.ServersAddr[idx])
 					break
 				case codes.Unavailable:
-					log.Printf("[%d] Put operation failed: Cannot connect to the replicate\n", idx)
+					log.Printf("BC_PUT conn failed:%s\n", n.ServersAddr[idx])
 					break
 				default:
-					log.Printf("[%d] Put operation failed: %v\n", idx, errStatus.Code())
+					log.Printf("BC_PUT failed:%s\n", n.ServersAddr[idx])
 				}
 			}(i)
 		}
 	} else {
 		// decide if the message should be dropped
 		r := rand.Float32()
-		log.Printf("random: %f, drop prob: %f\n", r, n.Chaos[in.From][n.ID])
 		if r < n.Chaos[in.From][n.ID] {
-			log.Printf("Message is dropped: %f\n", n.Chaos[in.From][n.ID])
+			log.Printf("DROP_PUT:%f\n", n.Chaos[in.From][n.ID])
 			time.Sleep(10 * time.Second)
 		} else {
+			log.Printf("BC_PUT:%s, %s\n", in.Key, in.Value)
 			n.Dict[in.Key] = in.Value
 		}
 	}
@@ -106,50 +108,14 @@ func (n *node) UploadMatrix(ctx context.Context, mat *cm.ConnMatrix) (*cm.Status
 			n.Chaos[i][j] = mat.Rows[i].Vals[j]
 		}
 	}
-	fmt.Println(n.Chaos)
-
-	if mat.From < 0 {
-		for i := 0; i < len(n.ServersAddr); i++ {
-			if i == n.ID {
-				continue
-			}
-
-			log.Printf("Broadcast upload matrix to %s\n", n.ServersAddr[i])
-			mat.From = int32(n.ID)
-
-			res, err := n.ServersCmClient[i].UploadMatrix(ctx, mat)
-			if err != nil {
-				log.Printf("Upload matrix failed: %v\n", err)
-			} else {
-				log.Printf("Status code: %d\n", res.Ret)
-			}
-		}
-	}
+	log.Printf("UL_MAT\n")
 
 	return &cm.Status{Ret: cm.StatusCode_OK}, nil
 }
 
 func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, error) {
 	n.Chaos[matv.Row][matv.Col] = matv.Val
-	fmt.Println(n.Chaos)
-
-	if matv.From < 0 {
-		for i := 0; i < len(n.ServersAddr); i++ {
-			if i == n.ID {
-				continue
-			}
-
-			log.Printf("Broadcast update matrix value to %s\n", n.ServersAddr[i])
-			matv.From = int32(n.ID)
-
-			res, err := n.ServersCmClient[i].UpdateValue(ctx, matv)
-			if err != nil {
-				log.Printf("Update value failed: %v\n", err)
-			} else {
-				log.Printf("Status code: %d\n", res.Ret)
-			}
-		}
-	}
+	log.Printf("UD_MAT:%d, %d, %f\n", matv.Row, matv.Col, matv.Val)
 
 	return &cm.Status{Ret: cm.StatusCode_OK}, nil
 }
@@ -160,32 +126,31 @@ func (n *node) ConnectServers() {
 			continue
 		}
 
+		log.Printf("Connecting to %s\n", n.ServersAddr[i])
 		conn, err := grpc.Dial(n.ServersAddr[i], grpc.WithInsecure())
 		if err != nil {
-			log.Fatalf("Failed to connect: %v\n", err)
+			log.Printf("Failed to connect %s: %v\n", n.ServersAddr[i], err)
 		}
 
 		n.ServersKvClient[i] = kv.NewKeyValueStoreClient(conn)
-		n.ServersCmClient[i] = cm.NewChaosMonkeyClient(conn)
 	}
 }
 
 func (n *node) initialize() {
-	net_size := len(n.ServersAddr)
+	netSize := len(n.ServersAddr)
 
 	// initialize choasmonkey matrix with drop probability 0
-	mat := make([][]float32, net_size)
-	for i := 0; i < net_size; i++ {
-		mat[i] = make([]float32, net_size)
-		for j := 0; j < net_size; j++ {
+	mat := make([][]float32, netSize)
+	for i := 0; i < netSize; i++ {
+		mat[i] = make([]float32, netSize)
+		for j := 0; j < netSize; j++ {
 			mat[i][j] = 0.0
 		}
 	}
 
 	n.Chaos = mat
 	n.Dict = make(map[string]string)
-	n.ServersKvClient = make([]kv.KeyValueStoreClient, net_size)
-	n.ServersCmClient = make([]cm.ChaosMonkeyClient, net_size)
+	n.ServersKvClient = make([]kv.KeyValueStoreClient, netSize)
 }
 
 var (
@@ -220,6 +185,15 @@ func readConfig(configFile string) {
 }
 
 func main() {
+	// log setup
+	f, err := os.OpenFile("log/"+time.Now().Format("2006.01.02_15:04:05.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatalf("Open log file error: %v\n", err)
+	}
+	defer f.Close()
+	mw := io.MultiWriter(os.Stderr, f)
+	log.SetOutput(mw)
+
 	var opts []grpc.ServerOption
 
 	lis, err := net.Listen("tcp", ":"+strings.Split(server.ServersAddr[server.ID], ":")[1])
