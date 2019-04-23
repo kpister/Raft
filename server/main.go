@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -48,7 +47,7 @@ func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, err
 }
 
 func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, error) {
-	fmt.Printf("PUT:%s, %s\n", in.Key, in.Value)
+	log.Printf("PUT:%s %s\n", in.Key, in.Value)
 
 	// put value to other replicates
 	// from == -1 if the request is from client, not other replicates
@@ -61,7 +60,7 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 			}
 
 			go func(idx int) {
-				log.Printf("BROADCAST request:%s\n", n.ServersAddr[idx])
+				log.Printf("BC_PUT request:%s\n", n.ServersAddr[idx])
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				in.From = int32(n.ServerIndex)
@@ -70,19 +69,19 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 				errStatus := status.Convert(err)
 				switch errStatus.Code() {
 				case codes.OK:
-					fmt.Printf("BROADCAST_PUT success:%s\n", n.ServersAddr[idx])
+					log.Printf("BC_PUT success:%s\n", n.ServersAddr[idx])
 					break
 				case codes.Canceled:
-					log.Printf("BROADCAST_PUT dropped:%s\n", n.ServersAddr[idx])
+					log.Printf("BC_PUT dropped:%s\n", n.ServersAddr[idx])
 					break
 				case codes.DeadlineExceeded:
-					log.Printf("BROADCAST_PUT dropped:%s\n", n.ServersAddr[idx])
+					log.Printf("BC_PUT dropped:%s\n", n.ServersAddr[idx])
 					break
 				case codes.Unavailable:
-					log.Printf("BROADCAST_PUT conn failed:%s\n", n.ServersAddr[idx])
+					log.Printf("BC_PUT conn failed:%s\n", n.ServersAddr[idx])
 					break
 				default:
-					log.Printf("BROADCAST_PUT failed:%s\n", n.ServersAddr[idx])
+					log.Printf("BC_PUT failed:%s\n", n.ServersAddr[idx])
 				}
 			}(i)
 		}
@@ -93,7 +92,7 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 			log.Printf("DROP_PUT:%f\n", n.Chaos[in.From][n.ServerIndex])
 			time.Sleep(10 * time.Second)
 		} else {
-			fmt.Printf("PUT_BROADCAST:%s, %s\n", in.Key, in.Value)
+			log.Printf("BC_PUT:%s, %s\n", in.Key, in.Value)
 			n.Dict[in.Key] = in.Value
 		}
 	}
@@ -109,50 +108,15 @@ func (n *node) UploadMatrix(ctx context.Context, mat *cm.ConnMatrix) (*cm.Status
 			n.Chaos[i][j] = mat.Rows[i].Vals[j]
 		}
 	}
-	fmt.Println(n.Chaos)
-
-	if mat.From < 0 {
-		for i := 0; i < n.NServers; i++ {
-			if i == n.ServerIndex {
-				continue
-			}
-
-			log.Printf("Broadcast upload matrix to %s\n", n.ServersAddr[i])
-			mat.From = int32(n.ServerIndex)
-
-			res, err := n.ServersCmClient[i].UploadMatrix(ctx, mat)
-			if err != nil {
-				log.Printf("Upload matrix failed: %v\n", err)
-			} else {
-				log.Printf("Status code: %d\n", res.Ret)
-			}
-		}
-	}
+	log.Printf("UL_MAT\n")
 
 	return &cm.Status{Ret: cm.StatusCode_OK}, nil
 }
 
 func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, error) {
+
 	n.Chaos[matv.Row][matv.Col] = matv.Val
-	fmt.Println(n.Chaos)
-
-	if matv.From < 0 {
-		for i := 0; i < n.NServers; i++ {
-			if i == n.ServerIndex {
-				continue
-			}
-
-			log.Printf("Broadcast update matrix value to %s\n", n.ServersAddr[i])
-			matv.From = int32(n.ServerIndex)
-
-			res, err := n.ServersCmClient[i].UpdateValue(ctx, matv)
-			if err != nil {
-				log.Printf("Update value failed: %v\n", err)
-			} else {
-				log.Printf("Status code: %d\n", res.Ret)
-			}
-		}
-	}
+	log.Printf("UD_MAT:%d, %d, %f\n", matv.Row, matv.Col, matv.Val)
 
 	return &cm.Status{Ret: cm.StatusCode_OK}, nil
 }
@@ -200,7 +164,7 @@ func newNode(serversAddr []string, serverIndex int) *node {
 func readConfig(configPath string) []string {
 	configFp, err := os.Open(configPath)
 	if err != nil {
-		log.Fatalf("Open config file error: %v\n", err)
+		log.Fatalf("Open config error: %v\n", err)
 	}
 	defer configFp.Close()
 
