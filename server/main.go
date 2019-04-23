@@ -26,7 +26,6 @@ type node struct {
 	ServersAddr     []string
 	ServerIndex     int
 	ServersKvClient []kv.KeyValueStoreClient
-	ServersCmClient []cm.ChaosMonkeyClient
 }
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
@@ -134,7 +133,6 @@ func (n *node) ConnectServers() {
 		}
 
 		n.ServersKvClient[i] = kv.NewKeyValueStoreClient(conn)
-		n.ServersCmClient[i] = cm.NewChaosMonkeyClient(conn)
 	}
 }
 
@@ -157,7 +155,6 @@ func newNode(serversAddr []string, serverIndex int) *node {
 		ServersAddr:     serversAddr,
 		ServerIndex:     serverIndex,
 		ServersKvClient: make([]kv.KeyValueStoreClient, n),
-		ServersCmClient: make([]cm.ChaosMonkeyClient, n),
 	}
 }
 

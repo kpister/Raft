@@ -31,7 +31,9 @@ func messagePut(c kv.KeyValueStoreClient, key string, value string) {
 	res, err := c.Put(ctx, req)
 	if err != nil {
 		log.Printf("%s grpc failed:%v\n", task, err)
+		return
 	}
+
 	if res.Ret == kv.ReturnCode_SUCCESS {
 		log.Printf("%s respond\n", task)
 	} else {
@@ -54,7 +56,9 @@ func messageGet(c kv.KeyValueStoreClient, key string) string {
 	res, err := c.Get(ctx, req)
 	if err != nil {
 		log.Printf("%s grpc failed:%v\n", task, err)
+		return ""
 	}
+
 	if res.Ret == kv.ReturnCode_SUCCESS {
 		log.Printf("%s respond:%s\n", task, res.Value)
 	} else {
