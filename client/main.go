@@ -4,19 +4,20 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
-	cm "github.com/kpister/raft/chaosmonkey"
 	kv "github.com/kpister/raft/kvstore"
 	"google.golang.org/grpc"
 )
 
 func messagePut(c kv.KeyValueStoreClient, key string, value string) {
-	fmt.Printf("Putting value: %s\n", value)
+	task := servAddr + "\tPUT"
+	defer timeTrack(time.Now(), task)
+	log.Printf("%s request:%s %s\n", task, key, value)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -29,13 +30,21 @@ func messagePut(c kv.KeyValueStoreClient, key string, value string) {
 
 	res, err := c.Put(ctx, req)
 	if err != nil {
-		log.Fatalf("Put operation failed: %v\n", err)
+		log.Printf("%s grpc failed:%v\n", task, err)
+		return
 	}
-	fmt.Printf("Status code: %d\n", res.Ret)
+
+	if res.Ret == kv.ReturnCode_SUCCESS {
+		log.Printf("%s respond\n", task)
+	} else {
+		log.Printf("%s failed\n", task)
+	}
 }
 
 func messageGet(c kv.KeyValueStoreClient, key string) string {
-	fmt.Printf("Getting value for key %s\n", key)
+	task := servAddr + "\tGET"
+	defer timeTrack(time.Now(), task)
+	log.Printf("%s request:%s\n", task, key)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -46,85 +55,101 @@ func messageGet(c kv.KeyValueStoreClient, key string) string {
 
 	res, err := c.Get(ctx, req)
 	if err != nil {
-		log.Fatalf("Get operation failed: %v\n", err)
+		log.Printf("%s grpc failed:%v\n", task, err)
+		return ""
 	}
-	fmt.Printf("Status code: %d\n", res.Ret)
-	fmt.Printf("Value: %s\n", res.Value)
+
+	if res.Ret == kv.ReturnCode_SUCCESS {
+		log.Printf("%s respond:%s\n", task, res.Value)
+	} else {
+		log.Printf("%s failed\n", task)
+	}
 	return res.Value
 }
 
-func uploadMatrix(c cm.ChaosMonkeyClient, matPath string) {
-	// read matrix from file
-	matFp, err := os.Open(matPath)
-	if err != nil {
-		log.Fatalf("Open matrix file error: %v\n", err)
-	}
-	defer matFp.Close()
-
-	scanner := bufio.NewScanner(matFp)
-	mat := &cm.ConnMatrix{
-		From: -1,
-	}
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		sps := strings.Split(line, " ")
-		row := cm.ConnMatrix_MatRow{}
-		for _, sp := range sps {
-			p, _ := strconv.ParseFloat(sp, 32)
-			row.Vals = append(row.Vals, float32(p))
-		}
-		mat.Rows = append(mat.Rows, &row)
-	}
-
-	fmt.Printf("Uploading connectivity matrix %s\n", matPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	res, err := c.UploadMatrix(ctx, mat)
-	if err != nil {
-		log.Fatalf("Upload matrix operation failed: %v\n", err)
-	}
-	fmt.Printf("Status code: %d\n", res.Ret)
+func timeTrack(start time.Time, task string) {
+	elapsed := time.Since(start)
+	log.Printf("%s duration:%s", task, elapsed)
 }
 
-func updateValue(c cm.ChaosMonkeyClient, row int32, col int32, val float32) {
-	matv := &cm.MatValue{
-		Row:  row,
-		Col:  col,
-		Val:  val,
-		From: -1,
-	}
-
-	fmt.Printf("Updating connectivity matrix at (%d, %d) with %f\n", row, col, val)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	res, err := c.UpdateValue(ctx, matv)
-	if err != nil {
-		log.Fatalf("Update value operation failed: %v\n", err)
-	}
-	fmt.Printf("Status code: %d\n", res.Ret)
-}
-
-const (
-	servAddr = "localhost:8801"
-)
-
-func main() {
+func connect() (*grpc.ClientConn, kv.KeyValueStoreClient) {
+	task := servAddr + "\tCONN"
 	conn, err := grpc.Dial(servAddr, grpc.WithInsecure())
 	if err != nil {
-		log.Fatalf("Failed to connect: %v\n", err)
+		log.Printf("%s failed:%s\n", task, servAddr)
 	}
-	defer conn.Close()
 
+	log.Printf("%s connected:%s\n", task, servAddr)
 	kvClient := kv.NewKeyValueStoreClient(conn)
-	messagePut(kvClient, "m", "1")
-	messageGet(kvClient, "m")
-	messageGet(kvClient, "n")
+	return conn, kvClient
+}
 
-	cmClient := cm.NewChaosMonkeyClient(conn)
-	uploadMatrix(cmClient, "mat1.txt")
-	updateValue(cmClient, 0, 1, 0.5)
+var servAddr string
 
-	messagePut(kvClient, "n", "2")
+// Client commands:
+// 1. CONN host:port
+// 2. PUT key val
+// 3. GET key
+func main() {
+	// log setup
+	f, err := os.OpenFile("log/"+time.Now().Format("2006.01.02_15:04:05.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatalf("Open log file error: %v\n", err)
+	}
+	defer f.Close()
+	mw := io.MultiWriter(os.Stderr, f)
+	log.SetOutput(mw)
+
+	inputReader := bufio.NewReader(os.Stdin)
+	var conn *grpc.ClientConn
+	var kvClient kv.KeyValueStoreClient
+	for {
+		in, _ := inputReader.ReadString('\n')
+		in = strings.TrimSpace(in)
+
+		splits := strings.Split(in, " ")
+		if len(splits) <= 1 {
+			fmt.Println("bad input")
+			continue
+		}
+
+		switch splits[0] {
+		// CONN host:port
+		case "CONN":
+			if len(splits) != 2 {
+				fmt.Println("bad input")
+				continue
+			}
+
+			servAddr = splits[1]
+			if conn != nil {
+				conn.Close()
+			}
+			conn, kvClient = connect()
+			defer conn.Close()
+			break
+
+		// PUT key val
+		case "PUT":
+			if len(splits) != 3 {
+				fmt.Println("bad input")
+				continue
+			}
+
+			key, val := splits[1], splits[2]
+			messagePut(kvClient, key, val)
+			break
+
+		// GET key
+		case "GET":
+			if len(splits) != 2 {
+				fmt.Println("bad input")
+				continue
+			}
+
+			key := splits[1]
+			messageGet(kvClient, key)
+			break
+		}
+	}
 }
