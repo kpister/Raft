@@ -103,8 +103,15 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 }
 
 func (n *node) UploadMatrix(ctx context.Context, mat *cm.ConnMatrix) (*cm.Status, error) {
+	if len(mat.Rows) != n.NServers {
+		return &cm.Status{Ret: cm.StatusCode_ERROR}, nil
+	}
+
 	for i := 0; i < len(mat.Rows); i++ {
 		for j := 0; j < len(mat.Rows[i].Vals); j++ {
+			if len(mat.Rows[i].Vals) != n.NServers {
+				return &cm.Status{Ret: cm.StatusCode_ERROR}, nil
+			}
 			n.Chaos[i][j] = mat.Rows[i].Vals[j]
 		}
 	}
@@ -114,6 +121,10 @@ func (n *node) UploadMatrix(ctx context.Context, mat *cm.ConnMatrix) (*cm.Status
 }
 
 func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, error) {
+	if matv.Row < 0 || int(matv.Row) >= n.NServers || matv.Col < 0 || int(matv.Col) >= n.NServers {
+		return &cm.Status{Ret: cm.StatusCode_ERROR}, nil
+	}
+
 	n.Chaos[matv.Row][matv.Col] = matv.Val
 	log.Printf("UD_MAT:%d, %d, %f\n", matv.Row, matv.Col, matv.Val)
 
