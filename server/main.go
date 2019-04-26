@@ -27,6 +27,8 @@ type node struct {
 	Chaos           [][]float32
 	ServersAddr     []string
 	ServersKvClient []kv.KeyValueStoreClient
+    Term            int
+    State           string
 }
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
@@ -162,6 +164,8 @@ func (n *node) initialize() {
 	n.Chaos = mat
 	n.Dict = make(map[string]string)
 	n.ServersKvClient = make([]kv.KeyValueStoreClient, netSize)
+    n.State = "follower"
+    n.Term = 0
 }
 
 var (
