@@ -1,0 +1,24 @@
+#CREATE VAl
+CREATE 0.3
+# the new matrix only propogates to nodes on calling sleep
+SLEEP 20
+
+#partition num_partitions
+#then num_partitions lines follow describing each parition
+PARTITION 3
+0 1
+2
+3 4
+SLEEP 1000
+
+#heal reverts the state of matrix to whatever was before the last partion or ISOLATE
+#heal only has memory of 1 state
+HEAL
+SLEEP 20
+
+#isolate is just a short hand for special parition with only 1 node in it
+ISOLATE 3
+SLEEP 1000
+
+HEAL
+SLEEP 20
