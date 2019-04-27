@@ -16,19 +16,21 @@ import (
 
 	cm "github.com/kpister/raft/chaosmonkey"
 	kv "github.com/kpister/raft/kvstore"
+	rf "github.com/kpister/raft/raft"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type node struct {
-	ID              int
-	Dict            map[string]string
-	Chaos           [][]float32
-	ServersAddr     []string
-	ServersKvClient []kv.KeyValueStoreClient
-    Term            int
-    State           string
+	ID                int32
+	Dict              map[string]string
+	Chaos             [][]float32
+	ServersAddr       []string
+	ServersKvClient   []kv.KeyValueStoreClient
+	ServersRaftClient []rf.ServerClient
+	CurrentTerm       int32
+	State             string
+	VotedFor          int32
+	CommitIndex       int32
 }
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
@@ -57,34 +59,18 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 		n.Dict[in.Key] = in.Value
 
 		for i := 0; i < len(n.ServersAddr); i++ {
-			if i == n.ID {
+			if i == (int)(n.ID) {
 				continue
 			}
 
-			go func(idx int) {
-				log.Printf("BC_PUT request:%s\n", n.ServersAddr[idx])
+			go func(nodeID int) {
+				log.Printf("BC_PUT request:%s\n", n.ServersAddr[nodeID])
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				in.From = int32(n.ID)
 
-				_, err := n.ServersKvClient[idx].Put(ctx, in)
-				errStatus := status.Convert(err)
-				switch errStatus.Code() {
-				case codes.OK:
-					log.Printf("BC_PUT success:%s\n", n.ServersAddr[idx])
-					break
-				case codes.Canceled:
-					log.Printf("BC_PUT dropped:%s\n", n.ServersAddr[idx])
-					break
-				case codes.DeadlineExceeded:
-					log.Printf("BC_PUT dropped:%s\n", n.ServersAddr[idx])
-					break
-				case codes.Unavailable:
-					log.Printf("BC_PUT conn failed:%s\n", n.ServersAddr[idx])
-					break
-				default:
-					log.Printf("BC_PUT failed:%s\n", n.ServersAddr[idx])
-				}
+				_, err := n.ServersKvClient[nodeID].Put(ctx, in)
+				n.errorHandler(err, "BC_PUT", nodeID)
 			}(i)
 		}
 	} else {
@@ -133,9 +119,28 @@ func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, 
 	return &cm.Status{Ret: cm.StatusCode_OK}, nil
 }
 
-func (n *node) ConnectServers() {
+func (n *node) RequestVote(req rf.RequestVoteRequest) (*rf.RequestVoteResponse, error) {
+	resp := &rf.RequestVoteResponse{
+		Term: n.CurrentTerm,
+	}
+
+	if req.Term < n.CurrentTerm {
+		resp.VoteGranted = false
+		return resp, nil
+	}
+
+	if (n.VotedFor == -1 || n.VotedFor == req.CandidateId) && (req.LastLogTerm > n.CurrentTerm || (req.LastLogTerm == n.CurrentTerm && req.LastLogTerm > n.CommitIndex)) {
+		resp.VoteGranted = true
+		return resp, nil
+	}
+
+	resp.VoteGranted = false
+	return resp, nil
+}
+
+func (n *node) connectServers() {
 	for i := 0; i < len(n.ServersAddr); i++ {
-		if i == n.ID {
+		if i == (int)(n.ID) {
 			continue
 		}
 
@@ -146,6 +151,7 @@ func (n *node) ConnectServers() {
 		}
 
 		n.ServersKvClient[i] = kv.NewKeyValueStoreClient(conn)
+		n.ServersRaftClient[i] = rf.NewServerClient(conn)
 	}
 }
 
@@ -164,8 +170,11 @@ func (n *node) initialize() {
 	n.Chaos = mat
 	n.Dict = make(map[string]string)
 	n.ServersKvClient = make([]kv.KeyValueStoreClient, netSize)
-    n.State = "follower"
-    n.Term = 0
+	n.ServersRaftClient = make([]rf.ServerClient, netSize)
+	n.State = "follower"
+	n.CurrentTerm = 0
+	n.VotedFor = -1
+	n.CommitIndex = 0
 }
 
 var (
@@ -219,7 +228,7 @@ func main() {
 	grpcServer := grpc.NewServer(opts...)
 	kv.RegisterKeyValueStoreServer(grpcServer, &server)
 	cm.RegisterChaosMonkeyServer(grpcServer, &server)
-	server.ConnectServers()
+	server.connectServers()
 
 	log.Printf("Listening on %s\n", server.ServersAddr[server.ID])
 	grpcServer.Serve(lis)
