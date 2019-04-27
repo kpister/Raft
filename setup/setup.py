@@ -57,7 +57,12 @@ if __name__ == '__main__':
         ip_dict[ip].append(idx)
         idx += 1
 
-    cfg = {"ServersAddr": addrs}
+    cfg = {
+            "ServersAddr": addrs, 
+            "FollowerMax": 300, 
+            "FollowerMin": 150, 
+            "HeartbeatTimeout": 50
+            }
 
     pem = paramiko.RSAKey.from_private_key_file(args['<pem_file>'])
     for ip in ip_dict.keys():
@@ -68,7 +73,11 @@ if __name__ == '__main__':
         client.connect(hostname=ip, username="ec2-user", pkey=pem)
 
         # clear cfgs folder
-        cmd = f"rm -f {RAFT_PATH}/server/cfgs/*"
+        cmd = f"rm -f {RAFT_PATH}/server/cfgs/"
+        print(f'Executing: {cmd}')
+        client.exec_command(cmd)
+
+        cmd = f"mkdir {RAFT_PATH}/server/cfgs/"
         print(f'Executing: {cmd}')
         client.exec_command(cmd)
 
