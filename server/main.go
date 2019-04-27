@@ -22,13 +22,17 @@ import (
 )
 
 type node struct {
-	ID              int
+	ID              int32
 	Dict            map[string]string
 	Chaos           [][]float32
 	ServersAddr     []string
 	ServersKvClient []kv.KeyValueStoreClient
-    Term            int
+    Term            int32
     State           string
+
+    FollowerMax     int
+    FollowerMin     int
+    Heartbeat       int
 }
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
@@ -220,6 +224,8 @@ func main() {
 	kv.RegisterKeyValueStoreServer(grpcServer, &server)
 	cm.RegisterChaosMonkeyServer(grpcServer, &server)
 	server.ConnectServers()
+
+    go n.loop()
 
 	log.Printf("Listening on %s\n", server.ServersAddr[server.ID])
 	grpcServer.Serve(lis)
