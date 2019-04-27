@@ -1,14 +1,12 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net"
 	"os"
 	"strings"
@@ -21,21 +19,21 @@ import (
 )
 
 type node struct {
-	ID              int32
-	Dict            map[string]string
-	Chaos           [][]float32
-	ServersAddr     []string
-	ServersKvClient []kv.KeyValueStoreClient
-    ServersRaftClient []rf.ServerClient
-    State           string
+	ID                int32
+	Dict              map[string]string
+	Chaos             [][]float32
+	ServersAddr       []string
+	ServersKvClient   []kv.KeyValueStoreClient
+	ServersRaftClient []rf.ServerClient
+	State             string
 
-    FollowerMax     int
-    FollowerMin     int
-    Heartbeat       int
+	FollowerMax      int
+	FollowerMin      int
+	HeartbeatTimeout int
 
 	// should be persistent
 	CurrentTerm int32
-	Log         []*raft.Entry // assume that first entry is dummy entry to make it 1 based indexing
+	Log         []*rf.Entry // assume that first entry is dummy entry to make it 1 based indexing
 	// hence len(log)-1 is number of entries in the log
 	VotedFor int32
 
@@ -43,165 +41,12 @@ type node struct {
 	LeaderID    int32
 	CommitIndex int32
 	LastApplied int32
-}
 
-func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
-	log.Printf("GET:%s\n", in.Key)
-	// get value @ key
-	v, ok := n.Dict[in.Key]
+	Timer      *time.Timer
+	NextIndex  []int32
+	MatchIndex []int32
 
-	var r kv.ReturnCode
-	if ok {
-		log.Printf("GET success:%s\n", in.Key)
-		r = kv.ReturnCode_SUCCESS
-	} else {
-		log.Printf("GET failed:%s\n", in.Key)
-		r = kv.ReturnCode_FAILURE
-	}
-
-	return &kv.GetResponse{Value: v, Ret: r}, nil
-}
-
-func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, error) {
-	log.Printf("PUT:%s %s\n", in.Key, in.Value)
-
-	// put value to other replicates
-	// from == -1 if the request is from client, not other replicates
-	if in.From < 0 {
-		n.Dict[in.Key] = in.Value
-
-		for i := 0; i < len(n.ServersAddr); i++ {
-			if i == (int)(n.ID) {
-				continue
-			}
-
-			go func(nodeID int) {
-				log.Printf("BC_PUT request:%s\n", n.ServersAddr[nodeID])
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				in.From = int32(n.ID)
-
-				_, err := n.ServersKvClient[nodeID].Put(ctx, in)
-				n.errorHandler(err, "BC_PUT", nodeID)
-			}(i)
-		}
-	} else {
-		// decide if the message should be dropped
-		r := rand.Float32()
-		if r < n.Chaos[in.From][n.ID] {
-			log.Printf("DROP_PUT:%f\n", n.Chaos[in.From][n.ID])
-			time.Sleep(10 * time.Second)
-		} else {
-			log.Printf("BC_PUT:%s, %s\n", in.Key, in.Value)
-			n.Dict[in.Key] = in.Value
-		}
-	}
-
-	// set return code
-	r := kv.ReturnCode_SUCCESS
-	return &kv.PutResponse{Ret: r}, nil
-}
-
-func (n *node) UploadMatrix(ctx context.Context, mat *cm.ConnMatrix) (*cm.Status, error) {
-	if len(mat.Rows) != len(n.ServersAddr) {
-		return &cm.Status{Ret: cm.StatusCode_ERROR}, nil
-	}
-
-	for i := 0; i < len(mat.Rows); i++ {
-		for j := 0; j < len(mat.Rows[i].Vals); j++ {
-			if len(mat.Rows[i].Vals) != len(n.ServersAddr) {
-				return &cm.Status{Ret: cm.StatusCode_ERROR}, nil
-			}
-			n.Chaos[i][j] = mat.Rows[i].Vals[j]
-		}
-	}
-	log.Printf("UL_MAT\n")
-
-	return &cm.Status{Ret: cm.StatusCode_OK}, nil
-}
-
-func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, error) {
-	if matv.Row < 0 || int(matv.Row) >= len(n.ServersAddr) || matv.Col < 0 || int(matv.Col) >= len(n.ServersAddr) {
-		return &cm.Status{Ret: cm.StatusCode_ERROR}, nil
-	}
-
-	n.Chaos[matv.Row][matv.Col] = matv.Val
-	log.Printf("UD_MAT:%d, %d, %f\n", matv.Row, matv.Col, matv.Val)
-
-	return &cm.Status{Ret: cm.StatusCode_OK}, nil
-}
-
-func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (*rf.AppendEntriesResponse, error) {
-
-	response := &rf.AppendEntriesResponse{}
-
-	// update the current state based on incoming things
-	n.LeaderID = in.LeaderId
-
-	// 1. Reply false if term < currentTerm (5.1)
-	if in.Term < n.CurrentTerm {
-
-		n.resetTimer("append entries newer")
-
-		response.Success = false
-		response.Reason = rf.ErrorCode_AE_OLDTERM
-		response.Term = n.CurrentTerm
-		return response, nil
-	}
-
-	n.resetTimer("append entries timer reset")
-
-	// 2. reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
-
-	if (int(in.PrevLogIndex) >= len(n.Log)) || (n.Log[in.PrevLogIndex].Term != in.PrevLogTerm) {
-		response.Success = false
-		response.Reason = rf.ErrorCode_AE_LOGMISMATCH
-		response.Term = n.CurrentTerm
-		return response, nil
-	}
-
-	// AT this point, we know that the leader's log and followers log match at PrevLogIndex
-	// and hence by property, all previous log entries also match
-
-	// Get new entries which leader sent
-	leaderEntries := in.GetEntries()
-	// 3. if an existing entry conflicts with a new one (same index but different terms),
-	// delete the existing entry and all that follow it
-
-	// we would delete every entry after in.PrevLogIndex before as anyways we have the new entries from leader
-	n.Log = resizeSlice(n.Log, int(in.PrevLogIndex+1))
-	// 4. append new entries not already present in the log
-	n.Log = append(n.Log, leaderEntries...)
-
-	// 5. if leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
-	indexOfLastNewEntry := len(n.Log) - 1
-	if in.LeaderCommit > n.CommitIndex {
-		n.CommitIndex = min(in.LeaderCommit, int32(indexOfLastNewEntry))
-	}
-
-	response.Success = true
-	response.Reason = rf.ErrorCode_NONE
-	response.Term = n.CurrentTerm
-	return response, nil
-}
-
-func (n *node) RequestVote(req rf.RequestVoteRequest) (*rf.RequestVoteResponse, error) {
-	resp := &rf.RequestVoteResponse{
-		Term: n.CurrentTerm,
-	}
-
-	if req.Term < n.CurrentTerm {
-		resp.VoteGranted = false
-		return resp, nil
-	}
-
-	if (n.VotedFor == -1 || n.VotedFor == req.CandidateId) && (req.LastLogTerm > n.CurrentTerm || (req.LastLogTerm == n.CurrentTerm && req.LastLogTerm > n.CommitIndex)) {
-		resp.VoteGranted = true
-		return resp, nil
-	}
-
-	resp.VoteGranted = false
-	return resp, nil
+	reset chan string
 }
 
 func (n *node) connectServers() {
@@ -296,7 +141,7 @@ func main() {
 	cm.RegisterChaosMonkeyServer(grpcServer, &server)
 	server.connectServers()
 
-    go n.loop()
+	go server.loop()
 
 	log.Printf("Listening on %s\n", server.ServersAddr[server.ID])
 	grpcServer.Serve(lis)

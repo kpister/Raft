@@ -2,9 +2,10 @@ package main
 
 import (
 	"context"
-	rf "github.com/kpister/raft/raft"
 	"log"
 	"time"
+
+	rf "github.com/kpister/raft/raft"
 )
 
 type vote struct {
@@ -96,4 +97,23 @@ func (n *node) runRequestVote(nodeID int, voteChan chan vote) {
 		Granted: resp.VoteGranted,
 		NodeID:  nodeID,
 	}
+}
+
+func (n *node) RequestVote(req rf.RequestVoteRequest) (*rf.RequestVoteResponse, error) {
+	resp := &rf.RequestVoteResponse{
+		Term: n.CurrentTerm,
+	}
+
+	if req.Term < n.CurrentTerm {
+		resp.VoteGranted = false
+		return resp, nil
+	}
+
+	if (n.VotedFor == -1 || n.VotedFor == req.CandidateId) && (req.LastLogTerm > n.CurrentTerm || (req.LastLogTerm == n.CurrentTerm && req.LastLogTerm > n.CommitIndex)) {
+		resp.VoteGranted = true
+		return resp, nil
+	}
+
+	resp.VoteGranted = false
+	return resp, nil
 }
