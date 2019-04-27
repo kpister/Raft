@@ -16,10 +16,8 @@ import (
 
 	cm "github.com/kpister/raft/chaosmonkey"
 	kv "github.com/kpister/raft/kvstore"
-	raft "github.com/kpister/raft/raft"
+	rf "github.com/kpister/raft/raft"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type node struct {
@@ -28,7 +26,7 @@ type node struct {
 	Chaos           [][]float32
 	ServersAddr     []string
 	ServersKvClient []kv.KeyValueStoreClient
-    Term            int32
+    ServersRaftClient []rf.ServerClient
     State           string
 
     FollowerMax     int
@@ -73,34 +71,18 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 		n.Dict[in.Key] = in.Value
 
 		for i := 0; i < len(n.ServersAddr); i++ {
-			if i == int(n.ID) {
+			if i == (int)(n.ID) {
 				continue
 			}
 
-			go func(idx int) {
-				log.Printf("BC_PUT request:%s\n", n.ServersAddr[idx])
+			go func(nodeID int) {
+				log.Printf("BC_PUT request:%s\n", n.ServersAddr[nodeID])
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				in.From = int32(n.ID)
 
-				_, err := n.ServersKvClient[idx].Put(ctx, in)
-				errStatus := status.Convert(err)
-				switch errStatus.Code() {
-				case codes.OK:
-					log.Printf("BC_PUT success:%s\n", n.ServersAddr[idx])
-					break
-				case codes.Canceled:
-					log.Printf("BC_PUT dropped:%s\n", n.ServersAddr[idx])
-					break
-				case codes.DeadlineExceeded:
-					log.Printf("BC_PUT dropped:%s\n", n.ServersAddr[idx])
-					break
-				case codes.Unavailable:
-					log.Printf("BC_PUT conn failed:%s\n", n.ServersAddr[idx])
-					break
-				default:
-					log.Printf("BC_PUT failed:%s\n", n.ServersAddr[idx])
-				}
+				_, err := n.ServersKvClient[nodeID].Put(ctx, in)
+				n.errorHandler(err, "BC_PUT", nodeID)
 			}(i)
 		}
 	} else {
@@ -149,9 +131,9 @@ func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, 
 	return &cm.Status{Ret: cm.StatusCode_OK}, nil
 }
 
-func (n *node) AppendEntries(ctx context.Context, in *raft.AppendEntriesRequest) (*raft.AppendEntriesResponse, error) {
+func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (*rf.AppendEntriesResponse, error) {
 
-	response := &raft.AppendEntriesResponse{}
+	response := &rf.AppendEntriesResponse{}
 
 	// update the current state based on incoming things
 	n.LeaderID = in.LeaderId
@@ -162,7 +144,7 @@ func (n *node) AppendEntries(ctx context.Context, in *raft.AppendEntriesRequest)
 		n.resetTimer("append entries newer")
 
 		response.Success = false
-		response.Reason = raft.ErrorCode_AE_OLDTERM
+		response.Reason = rf.ErrorCode_AE_OLDTERM
 		response.Term = n.CurrentTerm
 		return response, nil
 	}
@@ -173,7 +155,7 @@ func (n *node) AppendEntries(ctx context.Context, in *raft.AppendEntriesRequest)
 
 	if (int(in.PrevLogIndex) >= len(n.Log)) || (n.Log[in.PrevLogIndex].Term != in.PrevLogTerm) {
 		response.Success = false
-		response.Reason = raft.ErrorCode_AE_LOGMISMATCH
+		response.Reason = rf.ErrorCode_AE_LOGMISMATCH
 		response.Term = n.CurrentTerm
 		return response, nil
 	}
@@ -198,14 +180,33 @@ func (n *node) AppendEntries(ctx context.Context, in *raft.AppendEntriesRequest)
 	}
 
 	response.Success = true
-	response.Reason = raft.ErrorCode_NONE
+	response.Reason = rf.ErrorCode_NONE
 	response.Term = n.CurrentTerm
 	return response, nil
 }
 
-func (n *node) ConnectServers() {
+func (n *node) RequestVote(req rf.RequestVoteRequest) (*rf.RequestVoteResponse, error) {
+	resp := &rf.RequestVoteResponse{
+		Term: n.CurrentTerm,
+	}
+
+	if req.Term < n.CurrentTerm {
+		resp.VoteGranted = false
+		return resp, nil
+	}
+
+	if (n.VotedFor == -1 || n.VotedFor == req.CandidateId) && (req.LastLogTerm > n.CurrentTerm || (req.LastLogTerm == n.CurrentTerm && req.LastLogTerm > n.CommitIndex)) {
+		resp.VoteGranted = true
+		return resp, nil
+	}
+
+	resp.VoteGranted = false
+	return resp, nil
+}
+
+func (n *node) connectServers() {
 	for i := 0; i < len(n.ServersAddr); i++ {
-		if i == int(n.ID) {
+		if i == (int)(n.ID) {
 			continue
 		}
 
@@ -216,6 +217,7 @@ func (n *node) ConnectServers() {
 		}
 
 		n.ServersKvClient[i] = kv.NewKeyValueStoreClient(conn)
+		n.ServersRaftClient[i] = rf.NewServerClient(conn)
 	}
 }
 
@@ -234,8 +236,11 @@ func (n *node) initialize() {
 	n.Chaos = mat
 	n.Dict = make(map[string]string)
 	n.ServersKvClient = make([]kv.KeyValueStoreClient, netSize)
+	n.ServersRaftClient = make([]rf.ServerClient, netSize)
 	n.State = "follower"
 	n.CurrentTerm = 0
+	n.VotedFor = -1
+	n.CommitIndex = 0
 }
 
 var (
@@ -289,7 +294,7 @@ func main() {
 	grpcServer := grpc.NewServer(opts...)
 	kv.RegisterKeyValueStoreServer(grpcServer, &server)
 	cm.RegisterChaosMonkeyServer(grpcServer, &server)
-	server.ConnectServers()
+	server.connectServers()
 
     go n.loop()
 
