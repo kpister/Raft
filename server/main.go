@@ -16,6 +16,7 @@ import (
 
 	cm "github.com/kpister/raft/chaosmonkey"
 	kv "github.com/kpister/raft/kvstore"
+	raft "github.com/kpister/raft/raft"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,6 +34,17 @@ type node struct {
     FollowerMax     int
     FollowerMin     int
     Heartbeat       int
+
+	// should be persistent
+	CurrentTerm int32
+	Log         []*raft.Entry // assume that first entry is dummy entry to make it 1 based indexing
+	// hence len(log)-1 is number of entries in the log
+	VotedFor int32
+
+	// volatile
+	LeaderID    int32
+	CommitIndex int32
+	LastApplied int32
 }
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
@@ -61,7 +73,7 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 		n.Dict[in.Key] = in.Value
 
 		for i := 0; i < len(n.ServersAddr); i++ {
-			if i == n.ID {
+			if i == int(n.ID) {
 				continue
 			}
 
@@ -137,9 +149,63 @@ func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, 
 	return &cm.Status{Ret: cm.StatusCode_OK}, nil
 }
 
+func (n *node) AppendEntries(ctx context.Context, in *raft.AppendEntriesRequest) (*raft.AppendEntriesResponse, error) {
+
+	response := &raft.AppendEntriesResponse{}
+
+	// update the current state based on incoming things
+	n.LeaderID = in.LeaderId
+
+	// 1. Reply false if term < currentTerm (5.1)
+	if in.Term < n.CurrentTerm {
+
+		n.resetTimer("append entries newer")
+
+		response.Success = false
+		response.Reason = raft.ErrorCode_AE_OLDTERM
+		response.Term = n.CurrentTerm
+		return response, nil
+	}
+
+	n.resetTimer("append entries timer reset")
+
+	// 2. reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
+
+	if (int(in.PrevLogIndex) >= len(n.Log)) || (n.Log[in.PrevLogIndex].Term != in.PrevLogTerm) {
+		response.Success = false
+		response.Reason = raft.ErrorCode_AE_LOGMISMATCH
+		response.Term = n.CurrentTerm
+		return response, nil
+	}
+
+	// AT this point, we know that the leader's log and followers log match at PrevLogIndex
+	// and hence by property, all previous log entries also match
+
+	// Get new entries which leader sent
+	leaderEntries := in.GetEntries()
+	// 3. if an existing entry conflicts with a new one (same index but different terms),
+	// delete the existing entry and all that follow it
+
+	// we would delete every entry after in.PrevLogIndex before as anyways we have the new entries from leader
+	n.Log = resizeSlice(n.Log, int(in.PrevLogIndex+1))
+	// 4. append new entries not already present in the log
+	n.Log = append(n.Log, leaderEntries...)
+
+	// 5. if leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+	indexOfLastNewEntry := len(n.Log) - 1
+	if in.LeaderCommit > n.CommitIndex {
+		n.CommitIndex = min(in.LeaderCommit, int32(indexOfLastNewEntry))
+	}
+
+	response.Success = true
+	response.Reason = raft.ErrorCode_NONE
+	response.Term = n.CurrentTerm
+	return response, nil
+}
+
 func (n *node) ConnectServers() {
 	for i := 0; i < len(n.ServersAddr); i++ {
-		if i == n.ID {
+		if i == int(n.ID) {
 			continue
 		}
 
@@ -168,8 +234,8 @@ func (n *node) initialize() {
 	n.Chaos = mat
 	n.Dict = make(map[string]string)
 	n.ServersKvClient = make([]kv.KeyValueStoreClient, netSize)
-    n.State = "follower"
-    n.Term = 0
+	n.State = "follower"
+	n.CurrentTerm = 0
 }
 
 var (

@@ -12,6 +12,9 @@ enum ErrorCode {
     NONE = 0;
     TERM_ERROR = 1;
     LOG_ERROR = 2;
+    // added later
+    AE_OLDTERM = 3;
+    AE_LOGMISMATCH = 4;
 }
 
 // data stored per entry
@@ -34,6 +37,7 @@ message RequestVoteResponse {
     // optional: error code on why voteGranted is false
     // Values are optional by default
     ErrorCode reason = 3;
+    int32 id = 4;
 }
 
 message AppendEntriesRequest {
@@ -51,4 +55,5 @@ message AppendEntriesResponse {
     // optional: error code on why fail
     // Values are optional by default
     ErrorCode reason = 3;
+    int32 id = 4;
 }
