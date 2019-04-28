@@ -96,6 +96,9 @@ func (n *node) initialize() {
 	n.CurrentTerm = 0
 	n.VotedFor = -1
 	n.CommitIndex = 0
+	n.FollowerMax = 300
+	n.FollowerMin = 150
+	n.HeartbeatTimeout = 75
 
 	// apped a diummy entry to the log
 	dummyEntry := rf.Entry{Term: 0, Index: 0, Command: "dummy entry"}
@@ -157,10 +160,7 @@ func main() {
 
 	server.connectServers()
 
-	// for testing so that i can start other servers
-	time.Sleep(10 * time.Second)
-
-	// go server.loop()
+	go server.loop()
 
 	log.Printf("Listening on %s\n", server.ServersAddr[server.ID])
 	grpcServer.Serve(lis)
