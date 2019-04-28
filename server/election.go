@@ -58,12 +58,14 @@ func (n *node) beginElection(done chan string) bool {
 		// got a repsond from runRequestVote
 		case recvVote := <-voteChan:
 			// haven't receive any vote from that node
-			if !gotResp[n.ID] {
-				log.Printf("recv vote:%d\n", n.ID)
+			if !gotResp[recvVote.NodeID] {
 				gotResp[n.ID] = true
 
 				if recvVote.Granted {
+					log.Printf("recv accept vote:%d\n", recvVote.NodeID)
 					nGranted++
+				} else {
+					log.Printf("recv reject vote:%d\n", recvVote.NodeID)
 				}
 				nResp++
 
@@ -71,12 +73,14 @@ func (n *node) beginElection(done chan string) bool {
 				// win the election
 				if nGranted > len(n.ServersAddr)/2 {
 					// become leader
+					log.Printf("election end:got majority accept")
 					return true
 				}
 				// got majority rejected votes
 				// election ends
 				if nResp-nGranted > len(n.ServersAddr) {
 					// remain candidate
+					log.Printf("election end:got majority reject")
 					return false
 				}
 			}

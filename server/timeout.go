@@ -19,6 +19,7 @@ func (n *node) getTimeout() int {
 // resetTimer will clear cause timeout to fire on reset
 // it will set done <- message
 func (n *node) resetTimer(message string) {
+	log.Printf("reset timer:%s", message)
 	select {
 	case n.reset <- message:
 	default:
