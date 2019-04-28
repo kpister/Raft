@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package raft;
 
+option go_package = "github.com/kpister/raft/raft";
+
 service Server {
     rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse) {}
     rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {}

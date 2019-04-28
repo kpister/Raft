@@ -99,7 +99,7 @@ func (n *node) runRequestVote(nodeID int, voteChan chan vote) {
 	}
 }
 
-func (n *node) RequestVote(req rf.RequestVoteRequest) (*rf.RequestVoteResponse, error) {
+func (n *node) RequestVote(ctx context.Context, req *rf.RequestVoteRequest) (*rf.RequestVoteResponse, error) {
 	resp := &rf.RequestVoteResponse{
 		Term: n.CurrentTerm,
 	}

@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	cm "github.com/kpister/raft/chaosmonkey"
 	"log"
+
+	cm "github.com/kpister/raft/chaosmonkey"
 )
 
 func (n *node) UploadMatrix(ctx context.Context, mat *cm.ConnMatrix) (*cm.Status, error) {
@@ -33,4 +34,20 @@ func (n *node) UpdateValue(ctx context.Context, matv *cm.MatValue) (*cm.Status, 
 	log.Printf("UD_MAT:%d, %d, %f\n", matv.Row, matv.Col, matv.Val)
 
 	return &cm.Status{Ret: cm.StatusCode_OK}, nil
+}
+
+func (n *node) GetState(ctx context.Context, in *cm.EmptyMessage) (*cm.ServerState, error) {
+	response := &cm.ServerState{}
+	response.ID = n.ID
+	response.State = n.State
+	response.CurrentTerm = n.CurrentTerm
+	response.VotedFor = n.VotedFor
+	response.LeaderID = n.LeaderID
+	response.CommitIndex = n.CommitIndex
+	response.LastApplied = n.LastApplied
+	response.MatchIndex = n.MatchIndex
+	response.NextIndex = n.NextIndex
+	response.Log = n.Log
+
+	return response, nil
 }

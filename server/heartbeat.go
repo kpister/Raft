@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	rf "github.com/kpister/raft/raft"
 	"time"
+
+	rf "github.com/kpister/raft/raft"
 )
 
 // heartbeat will send a message to every other node,
@@ -57,6 +58,7 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 
 	// update the current state based on incoming things
 	n.LeaderID = in.LeaderId
+	n.CurrentTerm = max(n.CurrentTerm, in.Term)
 
 	// 1. Reply false if term < currentTerm (5.1)
 	if in.Term < n.CurrentTerm {

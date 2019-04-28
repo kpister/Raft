@@ -86,6 +86,10 @@ func (n *node) initialize() {
 	n.CurrentTerm = 0
 	n.VotedFor = -1
 	n.CommitIndex = 0
+
+	// apped a diummy entry to the log
+	dummyEntry := rf.Entry{Term: 0, Index: 0, Command: "dummy entry"}
+	n.Log = append(n.Log, &dummyEntry)
 }
 
 var (
@@ -139,9 +143,14 @@ func main() {
 	grpcServer := grpc.NewServer(opts...)
 	kv.RegisterKeyValueStoreServer(grpcServer, &server)
 	cm.RegisterChaosMonkeyServer(grpcServer, &server)
+	rf.RegisterServerServer(grpcServer, &server)
+
 	server.connectServers()
 
-	go server.loop()
+	// for testing so that i can start other servers
+	time.Sleep(10 * time.Second)
+
+	// go server.loop()
 
 	log.Printf("Listening on %s\n", server.ServersAddr[server.ID])
 	grpcServer.Serve(lis)

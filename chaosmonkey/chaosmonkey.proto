@@ -2,9 +2,12 @@ syntax = "proto3";
 
 package chaosmonkey;
 
+import "github.com/kpister/raft/raft/raft.proto";
+
 service ChaosMonkey {
     rpc UploadMatrix(ConnMatrix) returns (Status) {}
     rpc UpdateValue(MatValue) returns (Status) {}
+    rpc GetState(EmptyMessage) returns (ServerState) {}
 }
 
 enum StatusCode {
@@ -29,4 +32,19 @@ message MatValue {
     int32 col = 2;
     float val = 3;
     int32 from = 4;
+}
+
+message EmptyMessage {}
+
+message ServerState {
+    int32 ID = 1;
+    string State = 2;
+    int32 CurrentTerm = 3;
+    int32 VotedFor = 4;
+    int32 LeaderID = 5;
+    int32 CommitIndex = 6;
+    int32 LastApplied = 7;
+    repeated int32 MatchIndex = 8;
+    repeated int32 nextIndex = 9;
+    repeated raft.Entry log = 10;
 }
