@@ -21,6 +21,8 @@ func (n *node) beginElection(done chan string) bool {
 	n.State = "candidate"
 	n.CurrentTerm++
 
+	log.Printf("election:%d\n", n.CurrentTerm)
+
 	// send requestVote to all the other nodes
 	// collect votes from voteChan
 	voteChan := make(chan vote, len(n.ServersAddr))
@@ -43,15 +45,21 @@ func (n *node) beginElection(done chan string) bool {
 		case timeoutMsg := <-done:
 			// timeout before election ends
 			// election ends, return failed
-			// timeout: remain candidate
-			// append entries newer: become follower
-			if timeoutMsg == "timeout" || timeoutMsg == "append entries newer" {
+			switch timeoutMsg {
+			case "timeout":
+				// timeout: remain candidate
+				log.Println("election timeout")
+				return false
+			case "append entries newer":
+				// append entries newer: become follower
+				log.Println("election AE newer")
 				return false
 			}
 		// got a repsond from runRequestVote
 		case recvVote := <-voteChan:
 			// haven't receive any vote from that node
 			if !gotResp[n.ID] {
+				log.Printf("recv vote:%d\n", n.ID)
 				gotResp[n.ID] = true
 
 				if recvVote.Granted {
@@ -88,17 +96,19 @@ func (n *node) runRequestVote(nodeID int, voteChan chan vote) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	resp, err := n.ServersRaftClient[nodeID].RequestVote(ctx, req)
-	if err != nil {
-		log.Printf("RequestVote error: %v\n", err)
-	}
+	n.errorHandler(err, "RequestVote", nodeID)
 
-	voteChan <- vote{
-		Granted: resp.VoteGranted,
-		NodeID:  nodeID,
+	if err == nil {
+		voteChan <- vote{
+			Granted: resp.VoteGranted,
+			NodeID:  nodeID,
+		}
 	}
 }
 
 func (n *node) RequestVote(ctx context.Context, req *rf.RequestVoteRequest) (*rf.RequestVoteResponse, error) {
+	log.Printf("got RequestVote:%d\n", req.CandidateId)
+
 	resp := &rf.RequestVoteResponse{
 		Term: n.CurrentTerm,
 	}
@@ -106,15 +116,18 @@ func (n *node) RequestVote(ctx context.Context, req *rf.RequestVoteRequest) (*rf
 	// 1. Reply false if term < currentTerm
 	if req.Term < n.CurrentTerm {
 		resp.VoteGranted = false
+		log.Printf("resp RequestVote:%d reject smaller term\n", req.CandidateId)
 		return resp, nil
 	}
 
 	// 2. If votedFor is null or candidateId, and candidate’s log is at least as up-to-date as receiver’s log, grant vote
-	if (n.VotedFor == -1 || n.VotedFor == req.CandidateId) && (req.LastLogTerm > n.CurrentTerm || (req.LastLogTerm == n.CurrentTerm && req.LastLogTerm > n.CommitIndex)) {
+	if (n.VotedFor == -1 || n.VotedFor == req.CandidateId) && (req.LastLogTerm > n.Log[n.LastApplied].Term || (req.LastLogTerm == n.Log[n.LastApplied].Term && req.LastLogIndex >= n.LastApplied)) {
 		resp.VoteGranted = true
+		log.Printf("resp RequestVote:%d accept\n", req.CandidateId)
 		return resp, nil
 	}
 
 	resp.VoteGranted = false
+	log.Printf("resp RequestVote:%d reject\n", req.CandidateId)
 	return resp, nil
 }

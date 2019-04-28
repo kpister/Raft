@@ -10,17 +10,13 @@ func (n *node) errorHandler(err error, task string, nodeID int) {
 	errStatus := status.Convert(err)
 	switch errStatus.Code() {
 	case codes.OK:
-		log.Printf("%s success:%s\n", task, n.ServersAddr[nodeID])
-		break
+		log.Printf("%s connected:%s\n", task, n.ServersAddr[nodeID])
 	case codes.Canceled:
 		log.Printf("%s dropped:%s\n", task, n.ServersAddr[nodeID])
-		break
 	case codes.DeadlineExceeded:
 		log.Printf("%s dropped:%s\n", task, n.ServersAddr[nodeID])
-		break
 	case codes.Unavailable:
-		log.Printf("%s conn failed:%s\n", task, n.ServersAddr[nodeID])
-		break
+		log.Printf("%s conn_failed:%s\n", task, n.ServersAddr[nodeID])
 	default:
 		log.Printf("%s failed:%s\n", task, n.ServersAddr[nodeID])
 	}
