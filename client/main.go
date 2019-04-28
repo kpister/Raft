@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	kv "github.com/kpister/raft/kvstore"
 	"google.golang.org/grpc"
 )
@@ -74,7 +75,14 @@ func timeTrack(start time.Time, task string) {
 
 func connect() (*grpc.ClientConn, kv.KeyValueStoreClient) {
 	task := servAddr + "\tCONN"
-	conn, err := grpc.Dial(servAddr, grpc.WithInsecure())
+	// grpc will retry in 15 ms at most 5 times when failed
+	// TODO: put parameters into config
+	opts := []grpc_retry.CallOption{
+		grpc_retry.WithBackoff(grpc_retry.BackoffLinear(time.Duration(15 * time.Millisecond))),
+		grpc_retry.WithMax(5),
+	}
+	conn, err := grpc.Dial(servAddr, grpc.WithInsecure(),
+		grpc.WithUnaryInterceptor(grpc_retry.UnaryClientInterceptor(opts...)))
 	if err != nil {
 		log.Printf("%s failed:%s\n", task, servAddr)
 	}

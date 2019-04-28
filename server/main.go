@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	cm "github.com/kpister/raft/chaosmonkey"
 	kv "github.com/kpister/raft/kvstore"
 	rf "github.com/kpister/raft/raft"
@@ -50,13 +51,22 @@ type node struct {
 }
 
 func (n *node) connectServers() {
+	// grpc will retry in 15 ms at most 5 times when failed
+	// TODO: put parameters into config
+	opts := []grpc_retry.CallOption{
+		grpc_retry.WithBackoff(grpc_retry.BackoffLinear(time.Duration(15 * time.Millisecond))),
+		grpc_retry.WithMax(5),
+	}
+
 	for i := 0; i < len(n.ServersAddr); i++ {
 		if i == (int)(n.ID) {
 			continue
 		}
 
 		log.Printf("Connecting to %s\n", n.ServersAddr[i])
-		conn, err := grpc.Dial(n.ServersAddr[i], grpc.WithInsecure())
+
+		conn, err := grpc.Dial(n.ServersAddr[i], grpc.WithInsecure(),
+			grpc.WithUnaryInterceptor(grpc_retry.UnaryClientInterceptor(opts...)))
 		if err != nil {
 			log.Printf("Failed to connect %s: %v\n", n.ServersAddr[i], err)
 		}
