@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/retry"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	cm "github.com/kpister/raft/chaosmonkey"
 	kv "github.com/kpister/raft/kvstore"
 	rf "github.com/kpister/raft/raft"
@@ -48,6 +48,8 @@ type node struct {
 	MatchIndex []int32
 
 	reset chan string
+	// to be used to persist log
+	Logfile string
 }
 
 func (n *node) connectServers() {
@@ -93,19 +95,30 @@ func (n *node) initialize() {
 	n.ServersKvClient = make([]kv.KeyValueStoreClient, netSize)
 	n.ServersRaftClient = make([]rf.ServerClient, netSize)
 	n.State = "follower"
-	n.CurrentTerm = 0
-	n.VotedFor = -1
 	n.CommitIndex = 0
 
 	n.reset = make(chan string, 1)
 
+	// not needed if already defined in config file
 	n.FollowerMax = 300
 	n.FollowerMin = 150
 	n.HeartbeatTimeout = 75
 
-	// apped a diummy entry to the log
-	dummyEntry := rf.Entry{Term: 0, Index: 0, Command: "dummy entry"}
-	n.Log = append(n.Log, &dummyEntry)
+	if !n.isFirstBoot() {
+		// we are restarting afer a crash
+		// so we should have a log file named log{server_num}
+		n.CurrentTerm = n.readCurrentTerm()
+		n.VotedFor = n.readVotedFor()
+		n.Log = n.readLog()
+
+	} else {
+		// it's a fresh boot
+		n.CurrentTerm = 0
+		n.VotedFor = -1
+		// apped a diummy entry to the log
+		dummyEntry := rf.Entry{Term: 0, Index: 0, Command: "dummy entry"}
+		n.Log = append(n.Log, &dummyEntry)
+	}
 }
 
 var (

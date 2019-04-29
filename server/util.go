@@ -28,3 +28,9 @@ func isEqual(e1 *raft.Entry, e2 *raft.Entry) bool {
 func resizeSlice(a []*raft.Entry, newSize int) []*raft.Entry {
 	return append([]*raft.Entry(nil), a[:newSize]...)
 }
+
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
+}

@@ -107,6 +107,9 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 		n.CommitIndex = min(in.LeaderCommit, int32(indexOfLastNewEntry))
 	}
 
+	// PERSIST LOG before returning with success
+	n.persistLog()
+
 	response.Success = true
 	response.Reason = rf.ErrorCode_NONE
 	response.Term = n.CurrentTerm
