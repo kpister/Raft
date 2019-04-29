@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"time"
 
 	rf "github.com/kpister/raft/raft"
@@ -11,6 +12,8 @@ import (
 // it attempts to bring those nodes up to speed
 // asynchronously starts many runAppendEntries threads
 func (n *node) heartbeat(done chan string) {
+	// log.Printf("heartbeat:%d\n", n.CurrentTerm)
+
 	responses := make(chan rf.AppendEntriesResponse, len(n.ServersAddr))
 
 	for i, _ := range n.ServersAddr {
@@ -62,16 +65,19 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 
 	// 1. Reply false if term < currentTerm (5.1)
 	if in.Term < n.CurrentTerm {
-
-		n.resetTimer("append entries newer")
-
 		response.Success = false
 		response.Reason = rf.ErrorCode_AE_OLDTERM
 		response.Term = n.CurrentTerm
 		return response, nil
 	}
 
-	n.resetTimer("append entries timer reset")
+	// receive request with term >= currentTerm
+	// become follower (it could be candidate or follower)
+	if n.State == "candidate" {
+		log.Println("AE newer term:candidate to follower")
+	}
+	n.State = "follower"
+	n.resetTimer("append entries newer term")
 
 	// 2. reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
 
@@ -131,9 +137,9 @@ func (n *node) runAppendEntries(node_id int, resp chan rf.AppendEntriesResponse)
 	r, err := n.ServersRaftClient[node_id].AppendEntries(ctx, &args)
 	if err != nil {
 		n.errorHandler(err, "AE", node_id)
+	} else {
+		resp <- *r
 	}
-
-	resp <- *r
 }
 
 // updateCommitIndex finds the largest index with a majority match

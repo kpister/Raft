@@ -96,6 +96,9 @@ func (n *node) initialize() {
 	n.CurrentTerm = 0
 	n.VotedFor = -1
 	n.CommitIndex = 0
+
+	n.reset = make(chan string, 1)
+
 	n.FollowerMax = 300
 	n.FollowerMin = 150
 	n.HeartbeatTimeout = 75

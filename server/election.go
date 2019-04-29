@@ -48,11 +48,11 @@ func (n *node) beginElection(done chan string) bool {
 			switch timeoutMsg {
 			case "timeout":
 				// timeout: remain candidate
-				log.Println("election timeout")
+				log.Println("election:timeout")
 				return false
-			case "append entries newer":
-				// append entries newer: become follower
-				log.Println("election AE newer")
+			case "append entries newer term":
+				// append entries newer term: become follower
+				log.Println("election:AE newer")
 				return false
 			}
 		// got a repsond from runRequestVote
@@ -100,9 +100,9 @@ func (n *node) runRequestVote(nodeID int, voteChan chan vote) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	resp, err := n.ServersRaftClient[nodeID].RequestVote(ctx, req)
-	n.errorHandler(err, "RequestVote", nodeID)
-
-	if err == nil {
+	if err != nil {
+		n.errorHandler(err, "RequestVote", nodeID)
+	} else {
 		voteChan <- vote{
 			Granted: resp.VoteGranted,
 			NodeID:  nodeID,

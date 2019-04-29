@@ -19,7 +19,6 @@ func (n *node) getTimeout() int {
 // resetTimer will clear cause timeout to fire on reset
 // it will set done <- message
 func (n *node) resetTimer(message string) {
-	log.Printf("reset timer:%s", message)
 	select {
 	case n.reset <- message:
 	default:
@@ -34,6 +33,7 @@ func (n *node) timeout(done chan string) {
 		select {
 		// if reset received, set done message and restart
 		case message := <-n.reset:
+			// log.Printf("timeout:%s\n", message)
 			select {
 			case done <- message:
 			default:
@@ -54,6 +54,7 @@ func (n *node) timeout(done chan string) {
 // initialize leader will promote a candidate to leader after
 // a successful election cycle.
 func (n *node) initializeLeader() {
+	log.Println("candidate to leader")
 	n.State = "leader"
 	n.NextIndex = make([]int32, len(n.ServersAddr))
 	n.MatchIndex = make([]int32, len(n.ServersAddr))
