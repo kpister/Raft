@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -55,13 +56,25 @@ func (n *node) timeout(done chan string) {
 // a successful election cycle.
 func (n *node) initializeLeader() {
 	log.Println("candidate to leader")
-	n.State = "leader"
 	n.NextIndex = make([]int32, len(n.ServersAddr))
 	n.MatchIndex = make([]int32, len(n.ServersAddr))
 	for i, _ := range n.ServersAddr {
 		n.NextIndex[i] = (int32)(len(n.Log))
 		n.MatchIndex[i] = 0
 	}
+
+	// NOTE: what if some client comes in and reads the value before this happens
+	delim := "$"
+	// apply the logs to the state machine
+	for i := int(n.LastApplied) + 1; i < len(n.Log); i++ {
+		command := n.Log[i].Command
+		seperated := strings.Split(command, delim) // key{delim}value
+		n.Dict[seperated[0]] = seperated[1]
+	}
+
+	// NOTE: moved after the state machine application so that it can't serve client unless everything is applied
+	n.State = "leader"
+
 }
 
 func (n *node) loop() {
