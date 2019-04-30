@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+
+	rf "github.com/kpister/raft/raft"
 )
 
 // getTimeout will return the per node timeout
@@ -75,6 +77,11 @@ func (n *node) initializeLeader() {
 	// NOTE: moved after the state machine application so that it can't serve client unless everything is applied
 	n.State = "leader"
 
+	n.Log = append(n.Log, &rf.Entry{
+		Term:    n.CurrentTerm,
+		Index:   (int32)(len(n.Log)),
+		Command: "NOOP$NOOP",
+	})
 }
 
 func (n *node) loop() {

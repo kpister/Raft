@@ -20,6 +20,7 @@ message GetRequest {
 message GetResponse {
     string value = 1;
     ReturnCode ret = 2;
+    string leaderHint = 3;
 }
 
 message PutRequest {
@@ -30,4 +31,5 @@ message PutRequest {
 
 message PutResponse {
     ReturnCode ret = 1;
+    string leaderHint = 2;
 }

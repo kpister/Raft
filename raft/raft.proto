@@ -24,6 +24,8 @@ message Entry {
     int32 term = 1;
     int32 index = 2;
     string command = 3;
+    int32 seqNo = 4;
+    string client = 5;
 }
 
 message RequestVoteRequest {

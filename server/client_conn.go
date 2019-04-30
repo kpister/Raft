@@ -3,65 +3,134 @@ package main
 import (
 	"context"
 	"log"
-	"math/rand"
+	// "math/rand"
+	"fmt"
+	"strings"
 	"time"
 
 	kv "github.com/kpister/raft/kvstore"
+	rf "github.com/kpister/raft/raft"
 )
 
 func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, error) {
 	log.Printf("PUT:%s %s\n", in.Key, in.Value)
 
-	// put value to other replicates
-	// from == -1 if the request is from client, not other replicates
-	if in.From < 0 {
-		n.Dict[in.Key] = in.Value
-
-		for i := 0; i < len(n.ServersAddr); i++ {
-			if i == (int)(n.ID) {
-				continue
-			}
-
-			go func(nodeID int) {
-				log.Printf("BC_PUT request:%s\n", n.ServersAddr[nodeID])
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				in.From = int32(n.ID)
-
-				_, err := n.ServersKvClient[nodeID].Put(ctx, in)
-				n.errorHandler(err, "BC_PUT", nodeID)
-			}(i)
-		}
-	} else {
-		// decide if the message should be dropped
-		r := rand.Float32()
-		if r < n.Chaos[in.From][n.ID] {
-			log.Printf("DROP_PUT:%f\n", n.Chaos[in.From][n.ID])
-			time.Sleep(10 * time.Second)
-		} else {
-			log.Printf("BC_PUT:%s, %s\n", in.Key, in.Value)
-			n.Dict[in.Key] = in.Value
-		}
+	// 1.
+	if n.LeaderID != n.ID {
+		return &kv.PutResponse{
+			Ret:        kv.ReturnCode_FAILURE,
+			LeaderHint: n.ServersAddr[n.LeaderID],
+		}, nil
 	}
 
-	// set return code
-	r := kv.ReturnCode_SUCCESS
-	return &kv.PutResponse{Ret: r}, nil
+	// appends the command to the log as new entry
+	entry := &rf.Entry{
+		Term:    n.CurrentTerm,
+		Index:   (int32)(len(n.Log)),
+		Command: fmt.Sprintf("PUT %s %s", in.Key, in.Value),
+	}
+	n.Log = append(n.Log, entry)
+
+	// issues AppendEntries asynchronously here
+	// collect responses from channel resps
+	resps := make(chan rf.AppendEntriesResponse, len(n.ServersAddr))
+	for i := 0; i < len(n.ServersAddr); i++ {
+		if i == (int)(n.ID) {
+			continue
+		}
+
+		go n.runAppendEntries(i, resps)
+	}
+
+	deadline, _ := ctx.Deadline()
+	_, _, retCode := n.sendAppendEntries(deadline, resps, false)
+	return &kv.PutResponse{
+		Ret: retCode,
+	}, nil
+}
+
+func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntriesResponse, isGet bool) (int, int, kv.ReturnCode) {
+	timer := time.NewTimer(time.Until(deadline))
+	nSuccess := 0
+	nResp := 0
+	gotResp := make([]bool, len(n.ServersAddr))
+	gotResp[n.ID] = true
+	for {
+		select {
+		case val := <-resps:
+			if !gotResp[val.Id] {
+				gotResp[val.Id] = true
+
+				if val.Success {
+					nSuccess++
+				} else if val.Reason == rf.ErrorCode_AE_OLDTERM { // we have been demoted, exit and become follower
+					return nSuccess, nResp, kv.ReturnCode_FAILURE
+				}
+				nResp++
+
+				if nSuccess > len(n.ServersAddr)/2 {
+					return nSuccess, nResp, kv.ReturnCode_SUCCESS
+				}
+
+				if isGet && nResp > len(n.ServersAddr)/2 {
+					return nSuccess, nResp, kv.ReturnCode_SUCCESS
+				}
+			}
+		case <-timer.C:
+			return nSuccess, nResp, kv.ReturnCode_FAILURE
+		}
+	}
 }
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
 	log.Printf("GET:%s\n", in.Key)
-	// get value @ key
-	v, ok := n.Dict[in.Key]
 
-	var r kv.ReturnCode
-	if ok {
-		log.Printf("GET success:%s\n", in.Key)
-		r = kv.ReturnCode_SUCCESS
-	} else {
-		log.Printf("GET failed:%s\n", in.Key)
-		r = kv.ReturnCode_FAILURE
+	// 1. check if it is a leader
+	if n.LeaderID != n.ID {
+		return &kv.GetResponse{
+			Ret:        kv.ReturnCode_FAILURE,
+			LeaderHint: n.ServersAddr[n.LeaderID],
+		}, nil
 	}
 
-	return &kv.GetResponse{Value: v, Ret: r}, nil
+	// 2.
+	for {
+		if n.Log[n.CommitIndex].Term == n.CurrentTerm {
+			break
+		}
+	}
+
+	// 3.
+	readIndex := n.CommitIndex
+
+	// 4.
+	// issues AppendEntries asynchronously here
+	// collect responses from channel resps
+	resps := make(chan rf.AppendEntriesResponse, len(n.ServersAddr))
+	for i := 0; i < len(n.ServersAddr); i++ {
+		if i == (int)(n.ID) {
+			continue
+		}
+
+		go n.runAppendEntries(i, resps)
+	}
+
+	deadline, _ := ctx.Deadline()
+	_, _, retCode := n.sendAppendEntries(deadline, resps, true)
+
+	// 5.
+	if retCode == kv.ReturnCode_SUCCESS {
+		for i := readIndex; i >= 0; i-- {
+			splits := strings.Split(n.Log[i].Command, "$")
+			if splits[0] == in.Key {
+				return &kv.GetResponse{
+					Value: splits[1],
+					Ret:   kv.ReturnCode_SUCCESS,
+				}, nil
+			}
+		}
+	}
+
+	return &kv.GetResponse{
+		Ret: kv.ReturnCode_FAILURE}, nil
 }

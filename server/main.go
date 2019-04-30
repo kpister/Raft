@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -124,6 +125,7 @@ func (n *node) initialize() {
 var (
 	server     node
 	configFile = flag.String("config", "cfg.json", "the file to read the configuration from")
+	logDir     = flag.String("logDir", "log/", "log directory")
 	help       = flag.Bool("h", false, "for usage")
 )
 
@@ -154,7 +156,7 @@ func readConfig(configFile string) {
 
 func main() {
 	// log setup
-	f, err := os.OpenFile("log/"+time.Now().Format("2006.01.02_15:04:05.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	f, err := os.OpenFile(*logDir+strconv.Itoa((int)(server.ID))+"_"+time.Now().Format("2006.01.02_15:04:05.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		log.Fatalf("Open log file error: %v\n", err)
 	}
