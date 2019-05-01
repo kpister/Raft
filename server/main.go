@@ -102,8 +102,8 @@ func (n *node) initialize() {
 
 	// not needed if already defined in config file
 	n.FollowerMax = 300
-	n.FollowerMin = 150
-	n.HeartbeatTimeout = 75
+	n.FollowerMin = 150 // i feel this should be 5-10x the heartbeat
+	n.HeartbeatTimeout = 30
 
 	if !n.isFirstBoot() {
 		// we are restarting afer a crash
@@ -114,6 +114,7 @@ func (n *node) initialize() {
 
 	} else {
 		// it's a fresh boot
+		log.Println("FRESH START")
 		n.CurrentTerm = 0
 		n.VotedFor = -1
 		// apped a diummy entry to the log

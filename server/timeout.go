@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"math/rand"
-	"strings"
 	"time"
 
 	rf "github.com/kpister/raft/raft"
@@ -65,16 +64,17 @@ func (n *node) initializeLeader() {
 		n.MatchIndex[i] = 0
 	}
 
-	// NOTE: what if some client comes in and reads the value before this happens
-	delim := "$"
+	// delim := "$"
 	// apply the logs to the state machine
-	for i := int(n.LastApplied) + 1; i < len(n.Log); i++ {
-		command := n.Log[i].Command
-		seperated := strings.Split(command, delim) // key{delim}value
-		if seperated[0] != "DUMMY" && seperated[0] != "NOOP" {
-			n.Dict[seperated[0]] = seperated[1]
-		}
-	}
+	// NOTE: Don't need this for now
+	// for i := int(n.LastApplied) + 1; i < len(n.Log); i++ {
+	// 	command := n.Log[i].Command
+	// 	log.Printf("Applying the command::%s\n", command)
+	// 	seperated := strings.Split(command, delim) // key{delim}value
+	// 	if seperated[0] != "DUMMY" && seperated[0] != "NOOP" {
+	// 		n.Dict[seperated[0]] = seperated[1]
+	// 	}
+	// }
 
 	// NOTE: moved after the state machine application so that it can't serve client unless everything is applied
 	n.State = "leader"
@@ -85,6 +85,8 @@ func (n *node) initializeLeader() {
 		Index:   (int32)(len(n.Log)),
 		Command: "NOOP$NOOP",
 	})
+	n.MatchIndex[n.ID] = int32(len(n.Log) - 1) // leader always match with its own entires
+
 }
 
 func (n *node) loop() {

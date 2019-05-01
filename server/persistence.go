@@ -79,7 +79,7 @@ func (n *node) readLog() []*rf.Entry {
 
 	var logs []*rf.Entry
 	// apped a diummy entry to the log
-	dummyEntry := rf.Entry{Term: 0, Index: 0, Command: "dummy entry"}
+	dummyEntry := rf.Entry{Term: 0, Index: 0, Command: "DUMMY$DUMMY"}
 	logs = append(logs, &dummyEntry)
 
 	for i := 0; i < numEntries; i++ {

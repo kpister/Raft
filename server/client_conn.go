@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+
 	// "math/rand"
 	"fmt"
 	"strings"
@@ -31,6 +32,8 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 		Command: fmt.Sprintf("%s$%s", in.Key, in.Value),
 	}
 	n.Log = append(n.Log, entry)
+	// increase your own match index
+	n.MatchIndex[n.ID] = int32(len(n.Log) - 1)
 
 	// issues AppendEntries asynchronously here
 	// collect responses from channel resps
@@ -97,7 +100,7 @@ func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, err
 	log.Printf("GET:%s\n", in.Key)
 
 	// 1. check if it is a leader
-	if n.LeaderID != n.ID {
+	if n.State != "leader" {
 		return &kv.GetResponse{
 			Ret:        kv.ReturnCode_FAILURE,
 			LeaderHint: n.ServersAddr[n.LeaderID],

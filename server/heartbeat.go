@@ -56,7 +56,21 @@ func (n *node) heartbeat(done chan string) {
 
 // AppendEntries is called by the leader to update the logs and refresh timeout
 func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (*rf.AppendEntriesResponse, error) {
+
 	response := &rf.AppendEntriesResponse{}
+
+	// CHAOS monkey part
+	shouldDrop := n.dropMessageChaos(in.LeaderId)
+	if shouldDrop {
+		// behavior of what to do when dropping the message
+		log.Printf("%d:DROPPING: Append Entries from %d\n", n.ID, in.LeaderId)
+		time.Sleep(20 * time.Second)
+		// just for safety
+		// in reality 20 seconds should always be greateer than the context deadline and this should never return
+		// anything
+		response.Success = false
+		return response, nil
+	}
 
 	// update the current state based on incoming things
 	n.LeaderID = in.LeaderId
@@ -95,10 +109,29 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 	// 3. if an existing entry conflicts with a new one (same index but different terms),
 	// delete the existing entry and all that follow it
 
+	var i int
+	for i = 0; ; i++ {
+		if i >= len(leaderEntries) {
+			// all the new entries which leader sent are already present
+			break
+		}
+		if i+int(in.PrevLogIndex)+1 >= len(n.Log) {
+			// all the entries in our log match with that of leader.
+			// leader might have few new entries though
+			break
+		}
+		if !isEqual(leaderEntries[i], n.Log[i+int(in.PrevLogIndex)+1]) {
+			// we are differing at this point
+			// delete this entry and all entries after this point from our log
+			n.Log = resizeSlice(n.Log, i+int(in.PrevLogIndex)+1)
+			break
+		}
+	}
+
 	// we would delete every entry after in.PrevLogIndex before as anyways we have the new entries from leader
 	n.Log = resizeSlice(n.Log, int(in.PrevLogIndex+1))
 	// 4. append new entries not already present in the log
-	n.Log = append(n.Log, leaderEntries...)
+	n.Log = append(n.Log, leaderEntries[i:]...)
 
 	// 5. if leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	indexOfLastNewEntry := len(n.Log) - 1
@@ -126,7 +159,7 @@ func (n *node) runAppendEntries(node_id int, resp chan rf.AppendEntriesResponse)
 	if (int)(n.NextIndex[node_id]) == len(n.Log) {
 		entries = make([]*rf.Entry, 0)
 	} else {
-		entries = n.Log[n.NextIndex[node_id]-1:]
+		entries = n.Log[n.NextIndex[node_id]:]
 	}
 
 	args := rf.AppendEntriesRequest{
