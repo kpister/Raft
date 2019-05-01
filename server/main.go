@@ -117,7 +117,7 @@ func (n *node) initialize() {
 		n.CurrentTerm = 0
 		n.VotedFor = -1
 		// apped a diummy entry to the log
-		dummyEntry := rf.Entry{Term: 0, Index: 0, Command: "dummy entry"}
+		dummyEntry := rf.Entry{Term: 0, Index: 0, Command: "DUMMY$DUMMY"}
 		n.Log = append(n.Log, &dummyEntry)
 	}
 }

@@ -71,11 +71,14 @@ func (n *node) initializeLeader() {
 	for i := int(n.LastApplied) + 1; i < len(n.Log); i++ {
 		command := n.Log[i].Command
 		seperated := strings.Split(command, delim) // key{delim}value
-		n.Dict[seperated[0]] = seperated[1]
+		if seperated[0] != "DUMMY" && seperated[0] != "NOOP" {
+			n.Dict[seperated[0]] = seperated[1]
+		}
 	}
 
 	// NOTE: moved after the state machine application so that it can't serve client unless everything is applied
 	n.State = "leader"
+	n.LeaderID = n.ID
 
 	n.Log = append(n.Log, &rf.Entry{
 		Term:    n.CurrentTerm,

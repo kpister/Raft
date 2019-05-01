@@ -15,8 +15,9 @@ import (
 func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, error) {
 	log.Printf("PUT:%s %s\n", in.Key, in.Value)
 
-	// 1.
+	// 1. reply NOT_LEADER if not leader, providing hint when available
 	if n.LeaderID != n.ID {
+		log.Printf("PUT FAILURE:NOT_LEADER:%d\n", n.LeaderID)
 		return &kv.PutResponse{
 			Ret:        kv.ReturnCode_FAILURE,
 			LeaderHint: n.ServersAddr[n.LeaderID],
@@ -27,7 +28,7 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 	entry := &rf.Entry{
 		Term:    n.CurrentTerm,
 		Index:   (int32)(len(n.Log)),
-		Command: fmt.Sprintf("PUT %s %s", in.Key, in.Value),
+		Command: fmt.Sprintf("%s$%s", in.Key, in.Value),
 	}
 	n.Log = append(n.Log, entry)
 
@@ -44,6 +45,9 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 
 	deadline, _ := ctx.Deadline()
 	_, _, retCode := n.sendAppendEntries(deadline, resps, false)
+	if retCode == kv.ReturnCode_FAILURE {
+		log.Println("PUT FAILURE:AE")
+	}
 	return &kv.PutResponse{
 		Ret: retCode,
 	}, nil
@@ -51,8 +55,8 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 
 func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntriesResponse, isGet bool) (int, int, kv.ReturnCode) {
 	timer := time.NewTimer(time.Until(deadline))
-	nSuccess := 0
-	nResp := 0
+	nSuccess := 1
+	nResp := 1
 	gotResp := make([]bool, len(n.ServersAddr))
 	gotResp[n.ID] = true
 	for {
@@ -63,20 +67,27 @@ func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntries
 
 				if val.Success {
 					nSuccess++
-				} else if val.Reason == rf.ErrorCode_AE_OLDTERM { // we have been demoted, exit and become follower
+				} else if val.Reason == rf.ErrorCode_AE_OLDTERM {
+					// we have been demoted, exit and become follower
+					log.Println("REP FAIL:OLD_TERM")
 					return nSuccess, nResp, kv.ReturnCode_FAILURE
 				}
 				nResp++
 
 				if nSuccess > len(n.ServersAddr)/2 {
+					// receive majority sucess responses
+					log.Println("REP SUCC:MAJ_SUCC")
 					return nSuccess, nResp, kv.ReturnCode_SUCCESS
 				}
 
 				if isGet && nResp > len(n.ServersAddr)/2 {
+					// Get only, received majority responses
+					log.Println("REP SUCC:MAJ_RESP")
 					return nSuccess, nResp, kv.ReturnCode_SUCCESS
 				}
 			}
 		case <-timer.C:
+			log.Printf("REP SUCC:EXPIRED:%d/%d\n", nSuccess, nResp)
 			return nSuccess, nResp, kv.ReturnCode_FAILURE
 		}
 	}

@@ -56,7 +56,6 @@ func (n *node) heartbeat(done chan string) {
 
 // AppendEntries is called by the leader to update the logs and refresh timeout
 func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (*rf.AppendEntriesResponse, error) {
-
 	response := &rf.AppendEntriesResponse{}
 
 	// update the current state based on incoming things
@@ -108,9 +107,9 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 	}
 
 	// PERSIST LOG before returning with success
-	if len(leaderEntries) > 0 {
-		n.persistLog()
-	}
+	// if len(leaderEntries) > 0 {
+	// 	n.persistLog()
+	// }
 
 	response.Success = true
 	response.Reason = rf.ErrorCode_NONE
@@ -143,6 +142,7 @@ func (n *node) runAppendEntries(node_id int, resp chan rf.AppendEntriesResponse)
 	if err != nil {
 		n.errorHandler(err, "AE", node_id)
 	} else {
+		r.Id = (int32)(node_id)
 		resp <- *r
 	}
 }
