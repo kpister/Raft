@@ -20,6 +20,7 @@ type vote struct {
 func (n *node) beginElection(done chan string) bool {
 	n.State = "candidate"
 	n.CurrentTerm++
+	n.VotedFor = -1
 
 	log.Printf("election:%d\n", n.CurrentTerm)
 
@@ -126,6 +127,7 @@ func (n *node) RequestVote(ctx context.Context, req *rf.RequestVoteRequest) (*rf
 
 	// 2. If votedFor is null or candidateId, and candidate’s log is at least as up-to-date as receiver’s log, grant vote
 	if (n.VotedFor == -1 || n.VotedFor == req.CandidateId) && (req.LastLogTerm > n.Log[n.LastApplied].Term || (req.LastLogTerm == n.Log[n.LastApplied].Term && req.LastLogIndex >= n.LastApplied)) {
+		n.VotedFor = req.CandidateId
 		resp.VoteGranted = true
 		log.Printf("resp RequestVote:%d accept\n", req.CandidateId)
 		return resp, nil

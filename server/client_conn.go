@@ -14,6 +14,10 @@ import (
 
 func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, error) {
 	log.Printf("PUT:%s %s\n", in.Key, in.Value)
+	log.Printf("commit index:%d\n", n.CommitIndex)
+	for _, entry := range n.Log {
+		log.Printf("%d %d %s\n", entry.Term, entry.Index, entry.Command)
+	}
 
 	// 1. reply NOT_LEADER if not leader, providing hint when available
 	if n.LeaderID != n.ID {
@@ -63,6 +67,7 @@ func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntries
 		select {
 		case val := <-resps:
 			if !gotResp[val.Id] {
+				log.Printf("recv AE resp from:%d", val.Id)
 				gotResp[val.Id] = true
 
 				if val.Success {
@@ -95,8 +100,12 @@ func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntries
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
 	log.Printf("GET:%s\n", in.Key)
+	log.Printf("commit index:%d\n", n.CommitIndex)
+	for _, entry := range n.Log {
+		log.Printf("%d %d %s\n", entry.Term, entry.Index, entry.Command)
+	}
 
-	// 1. check if it is a leader
+	// 1. Reply NOT_LEADER if not leader, providing hint when available
 	if n.LeaderID != n.ID {
 		return &kv.GetResponse{
 			Ret:        kv.ReturnCode_FAILURE,
@@ -104,14 +113,14 @@ func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, err
 		}, nil
 	}
 
-	// 2.
+	// 2. Wait until lasted commit entry is from this leader's term
 	for {
 		if n.Log[n.CommitIndex].Term == n.CurrentTerm {
 			break
 		}
 	}
 
-	// 3.
+	// 3. Save CommitIndex as local variable index
 	readIndex := n.CommitIndex
 
 	// 4.
