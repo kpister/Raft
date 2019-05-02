@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"time"
 
 	rf "github.com/kpister/raft/raft"
@@ -11,6 +12,8 @@ import (
 // it attempts to bring those nodes up to speed
 // asynchronously starts many runAppendEntries threads
 func (n *node) heartbeat(done chan string) {
+	// log.Printf("heartbeat:%d\n", n.CurrentTerm)
+
 	responses := make(chan rf.AppendEntriesResponse, len(n.ServersAddr))
 
 	for i, _ := range n.ServersAddr {
@@ -56,22 +59,38 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 
 	response := &rf.AppendEntriesResponse{}
 
+	// CHAOS monkey part
+	shouldDrop := n.dropMessageChaos(in.LeaderId)
+	if shouldDrop {
+		// behavior of what to do when dropping the message
+		log.Printf("%d:DROPPING: Append Entries from %d\n", n.ID, in.LeaderId)
+		time.Sleep(20 * time.Second)
+		// just for safety
+		// in reality 20 seconds should always be greateer than the context deadline and this should never return
+		// anything
+		response.Success = false
+		return response, nil
+	}
+
 	// update the current state based on incoming things
 	n.LeaderID = in.LeaderId
 	n.CurrentTerm = max(n.CurrentTerm, in.Term)
 
 	// 1. Reply false if term < currentTerm (5.1)
 	if in.Term < n.CurrentTerm {
-
-		n.resetTimer("append entries newer")
-
 		response.Success = false
 		response.Reason = rf.ErrorCode_AE_OLDTERM
 		response.Term = n.CurrentTerm
 		return response, nil
 	}
 
-	n.resetTimer("append entries timer reset")
+	// receive request with term >= currentTerm
+	// become follower (it could be candidate or follower)
+	if n.State == "candidate" {
+		log.Println("AE newer term:candidate to follower")
+	}
+	n.State = "follower"
+	n.resetTimer("append entries newer term")
 
 	// 2. reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
 
@@ -90,15 +109,45 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 	// 3. if an existing entry conflicts with a new one (same index but different terms),
 	// delete the existing entry and all that follow it
 
+	var i int
+	for i = 0; ; i++ {
+		if i >= len(leaderEntries) {
+			// all the new entries which leader sent are already present
+			break
+		}
+		if i+int(in.PrevLogIndex)+1 >= len(n.Log) {
+			// all the entries in our log match with that of leader.
+			// leader might have few new entries though
+			break
+		}
+		if !isEqual(leaderEntries[i], n.Log[i+int(in.PrevLogIndex)+1]) {
+			// we are differing at this point
+			// delete this entry and all entries after this point from our log
+			n.Log = resizeSlice(n.Log, i+int(in.PrevLogIndex)+1)
+			break
+		}
+	}
+
 	// we would delete every entry after in.PrevLogIndex before as anyways we have the new entries from leader
 	n.Log = resizeSlice(n.Log, int(in.PrevLogIndex+1))
 	// 4. append new entries not already present in the log
-	n.Log = append(n.Log, leaderEntries...)
+	n.Log = append(n.Log, leaderEntries[i:]...)
 
 	// 5. if leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	indexOfLastNewEntry := len(n.Log) - 1
 	if in.LeaderCommit > n.CommitIndex {
 		n.CommitIndex = min(in.LeaderCommit, int32(indexOfLastNewEntry))
+
+		log.Println("FOLLOWER COMMIT")
+		log.Printf("CommitIndex = %d\n", n.CommitIndex)
+		for _, entry := range n.Log {
+			log.Printf("%d %d %s\n", entry.Term, entry.Index, entry.Command)
+		}
+	}
+
+	// PERSIST LOG before returning with success
+	if len(leaderEntries) > 0 {
+		n.persistLog()
 	}
 
 	response.Success = true
@@ -116,7 +165,7 @@ func (n *node) runAppendEntries(node_id int, resp chan rf.AppendEntriesResponse)
 	if (int)(n.NextIndex[node_id]) == len(n.Log) {
 		entries = make([]*rf.Entry, 0)
 	} else {
-		entries = n.Log[n.NextIndex[node_id]-1:]
+		entries = n.Log[n.NextIndex[node_id]:]
 	}
 
 	args := rf.AppendEntriesRequest{
@@ -131,9 +180,10 @@ func (n *node) runAppendEntries(node_id int, resp chan rf.AppendEntriesResponse)
 	r, err := n.ServersRaftClient[node_id].AppendEntries(ctx, &args)
 	if err != nil {
 		n.errorHandler(err, "AE", node_id)
+	} else {
+		r.Id = (int32)(node_id)
+		resp <- *r
 	}
-
-	resp <- *r
 }
 
 // updateCommitIndex finds the largest index with a majority match

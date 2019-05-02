@@ -20,14 +20,18 @@ message GetRequest {
 message GetResponse {
     string value = 1;
     ReturnCode ret = 2;
+    string leaderHint = 3;
 }
 
 message PutRequest {
     string key = 1;
     string value = 2;
     int32 from = 3;
+    string clientId = 4;
+    int32 seqNo = 5;
 }
 
 message PutResponse {
     ReturnCode ret = 1;
+    string leaderHint = 2;
 }

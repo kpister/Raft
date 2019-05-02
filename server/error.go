@@ -6,18 +6,23 @@ import (
 	"log"
 )
 
-func (n *node) errorHandler(err error, task string, nodeID int) {
+func (n *node) errorHandler(err error, task string, nodeID int) string {
 	errStatus := status.Convert(err)
 	switch errStatus.Code() {
 	case codes.OK:
-		log.Printf("%s connected:%s\n", task, n.ServersAddr[nodeID])
+		log.Printf("%s connected:%d\n", task, nodeID)
+		return "conn"
 	case codes.Canceled:
-		log.Printf("%s dropped:%s\n", task, n.ServersAddr[nodeID])
+		log.Printf("%s dropped:%d\n", task, nodeID)
+		return "dropped"
 	case codes.DeadlineExceeded:
-		log.Printf("%s dropped:%s\n", task, n.ServersAddr[nodeID])
+		log.Printf("%s dropped:%d\n", task, nodeID)
+		return "dropped"
 	case codes.Unavailable:
-		log.Printf("%s conn_failed:%s\n", task, n.ServersAddr[nodeID])
+		log.Printf("%s conn_failed:%d\n", task, nodeID)
+		return "conn_failed"
 	default:
-		log.Printf("%s failed:%s\n", task, n.ServersAddr[nodeID])
+		log.Printf("%s failed:%d\n", task, nodeID)
+		return "failed"
 	}
 }

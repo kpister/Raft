@@ -20,6 +20,7 @@ type vote struct {
 func (n *node) beginElection(done chan string) bool {
 	n.State = "candidate"
 	n.CurrentTerm++
+	n.VotedFor = -1
 
 	log.Printf("election:%d\n", n.CurrentTerm)
 
@@ -48,11 +49,11 @@ func (n *node) beginElection(done chan string) bool {
 			switch timeoutMsg {
 			case "timeout":
 				// timeout: remain candidate
-				log.Println("election timeout")
+				log.Println("election:timeout")
 				return false
-			case "append entries newer":
-				// append entries newer: become follower
-				log.Println("election AE newer")
+			case "append entries newer term":
+				// append entries newer term: become follower
+				log.Println("election:AE newer")
 				return false
 			}
 		// got a repsond from runRequestVote
@@ -100,9 +101,9 @@ func (n *node) runRequestVote(nodeID int, voteChan chan vote) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	resp, err := n.ServersRaftClient[nodeID].RequestVote(ctx, req)
-	n.errorHandler(err, "RequestVote", nodeID)
-
-	if err == nil {
+	if err != nil {
+		n.errorHandler(err, "RequestVote", nodeID)
+	} else {
 		voteChan <- vote{
 			Granted: resp.VoteGranted,
 			NodeID:  nodeID,
@@ -111,27 +112,42 @@ func (n *node) runRequestVote(nodeID int, voteChan chan vote) {
 }
 
 func (n *node) RequestVote(ctx context.Context, req *rf.RequestVoteRequest) (*rf.RequestVoteResponse, error) {
-	log.Printf("got RequestVote:%d\n", req.CandidateId)
+	// log.Printf("%d:RequestVote FROM:%d, TERM:%d\n", n.ID, req.CandidateId, req.Term)
 
 	resp := &rf.RequestVoteResponse{
 		Term: n.CurrentTerm,
 	}
 
+	// CHAOS monkey part
+	shouldDrop := n.dropMessageChaos(req.CandidateId)
+	if shouldDrop {
+		// behavior of what to do when dropping the message
+		log.Printf("%d:DROPPING: Request Vote from %d\n", n.ID, req.CandidateId)
+		time.Sleep(20 * time.Second)
+		// just for safety
+		// in reality 20 seconds should always be greateer than the context deadline and this should never return
+		// anything
+		resp.VoteGranted = false
+		return resp, nil
+	}
+
 	// 1. Reply false if term < currentTerm
 	if req.Term < n.CurrentTerm {
 		resp.VoteGranted = false
-		log.Printf("resp RequestVote:%d reject smaller term\n", req.CandidateId)
+		log.Printf("resp RequestVote: FROM %d: TERM:%d, MyTERM: %d: reject smaller term\n", req.CandidateId, req.Term, n.CurrentTerm)
 		return resp, nil
 	}
 
 	// 2. If votedFor is null or candidateId, and candidate’s log is at least as up-to-date as receiver’s log, grant vote
 	if (n.VotedFor == -1 || n.VotedFor == req.CandidateId) && (req.LastLogTerm > n.Log[n.LastApplied].Term || (req.LastLogTerm == n.Log[n.LastApplied].Term && req.LastLogIndex >= n.LastApplied)) {
+		n.VotedFor = req.CandidateId
 		resp.VoteGranted = true
-		log.Printf("resp RequestVote:%d accept\n", req.CandidateId)
+		n.VotedFor = req.CandidateId
+		log.Printf("resp RequestVote: FROM %d: TERM:%d, MyTERM: %d: accept\n", req.CandidateId, req.Term, n.CurrentTerm)
 		return resp, nil
 	}
 
 	resp.VoteGranted = false
-	log.Printf("resp RequestVote:%d reject\n", req.CandidateId)
+	log.Printf("resp RequestVote: FROM %d: TERM:%d, MyTERM: %d: reject\n", req.CandidateId, req.Term, n.CurrentTerm)
 	return resp, nil
 }

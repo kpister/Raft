@@ -1,0 +1,27 @@
+// no connection :: DONE
+
+// 1 connection :: same no :: DONE
+
+// 2 connections :: same no :: DONE
+
+// 3 connections :: DONE
+
+// 4 connections :: same 3 :: DONE
+
+// 5 connections :: same 3 :: DONE
+
+// 4/1 partition :: same 3 :: DONE
+
+// 3/2 partition :: same 3 :: DONE
+
+// 2/2/1 partition :: same no
+
+// 5 connections -> 1 fault -> recovery :: DONE
+
+// leader fault :: DONE
+
+// 2 follower fault
+
+// 2 clients
+
+// 3 clients
