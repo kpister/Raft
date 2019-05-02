@@ -24,9 +24,11 @@ func messagePut(c kv.KeyValueStoreClient, key string, value string) {
 
 	// build request
 	req := &kv.PutRequest{
-		Key:   key,
-		Value: value,
-		From:  -1,
+		Key:      key,
+		Value:    value,
+		From:     -1,
+		ClientId: clientId,
+		SeqNo:    seqNo,
 	}
 
 	res, err := c.Put(ctx, req)
@@ -93,6 +95,8 @@ func connect() (*grpc.ClientConn, kv.KeyValueStoreClient) {
 }
 
 var servAddr string
+var clientId string
+var seqNo int32 = 1
 
 // Client commands:
 // 1. CONN host:port
@@ -135,7 +139,6 @@ func main() {
 			}
 			conn, kvClient = connect()
 			defer conn.Close()
-			break
 
 		// PUT key val
 		case "PUT":
@@ -146,7 +149,7 @@ func main() {
 
 			key, val := splits[1], splits[2]
 			messagePut(kvClient, key, val)
-			break
+			seqNo++
 
 		// GET key
 		case "GET":
@@ -157,7 +160,15 @@ func main() {
 
 			key := splits[1]
 			messageGet(kvClient, key)
-			break
+
+		// set client user name
+		// USERNAME username
+		case "USERNAME":
+			if len(splits) != 2 {
+				fmt.Println("bad input")
+				continue
+			}
+			clientId = splits[1]
 		}
 	}
 }

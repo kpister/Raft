@@ -29,11 +29,23 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 		}, nil
 	}
 
+	// check if client's request has been in the log
+	// if yes, respond it directly
+	for i := n.CommitIndex; i > 0; i-- {
+		if n.Log[i].ClientId == in.ClientId && n.Log[i].SeqNo == in.SeqNo {
+			return &kv.PutResponse{
+				Ret: kv.ReturnCode_SUCCESS,
+			}, nil
+		}
+	}
+
 	// appends the command to the log as new entry
 	entry := &rf.Entry{
-		Term:    n.CurrentTerm,
-		Index:   (int32)(len(n.Log)),
-		Command: fmt.Sprintf("%s$%s", in.Key, in.Value),
+		Term:     n.CurrentTerm,
+		Index:    (int32)(len(n.Log)),
+		Command:  fmt.Sprintf("%s$%s", in.Key, in.Value),
+		ClientId: in.ClientId,
+		SeqNo:    in.SeqNo,
 	}
 	n.Log = append(n.Log, entry)
 	// increase your own match index
