@@ -65,6 +65,7 @@ func (n *node) initializeLeader() {
 		Index:   (int32)(len(n.Log)),
 		Command: "NOOP$NOOP",
 	})
+	n.MatchIndex[n.ID] = int32(len(n.Log) - 1) // leader always match with its own entires
 
 	log.Printf("commit index:%d\n", n.CommitIndex)
 	for _, entry := range n.Log {
@@ -93,13 +94,6 @@ func (n *node) initializeLeader() {
 	// NOTE: moved after the state machine application so that it can't serve client unless everything is applied
 	n.State = "leader"
 	n.LeaderID = n.ID
-
-	n.Log = append(n.Log, &rf.Entry{
-		Term:    n.CurrentTerm,
-		Index:   (int32)(len(n.Log)),
-		Command: "NOOP$NOOP",
-	})
-	n.MatchIndex[n.ID] = int32(len(n.Log) - 1) // leader always match with its own entires
 
 }
 
