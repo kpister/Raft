@@ -146,9 +146,9 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 	}
 
 	// PERSIST LOG before returning with success
-	// if len(leaderEntries) > 0 {
-	// 	n.persistLog()
-	// }
+	if len(leaderEntries) > 0 {
+		n.persistLog()
+	}
 
 	response.Success = true
 	response.Reason = rf.ErrorCode_NONE

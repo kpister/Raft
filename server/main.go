@@ -105,6 +105,8 @@ func (n *node) initialize() {
 	n.FollowerMin = 150 // i feel this should be 5-10x the heartbeat
 	n.HeartbeatTimeout = 30
 
+	n.Logfile = "persistantLog_" + strconv.Itoa((int)(n.ID))
+
 	if !n.isFirstBoot() {
 		// we are restarting afer a crash
 		// so we should have a log file named log{server_num}
