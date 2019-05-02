@@ -57,6 +57,20 @@ func (n *node) timeout(done chan string) {
 // a successful election cycle.
 func (n *node) initializeLeader() {
 	log.Println("candidate to leader")
+
+	// For GET
+	// As soon as this no-op entry is committed, the leader’s commit index will be at least as large as any other servers’ during its term
+	n.Log = append(n.Log, &rf.Entry{
+		Term:    n.CurrentTerm,
+		Index:   (int32)(len(n.Log)),
+		Command: "NOOP$NOOP",
+	})
+
+	log.Printf("commit index:%d\n", n.CommitIndex)
+	for _, entry := range n.Log {
+		log.Printf("%d %d %s\n", entry.Term, entry.Index, entry.Command)
+	}
+
 	n.NextIndex = make([]int32, len(n.ServersAddr))
 	n.MatchIndex = make([]int32, len(n.ServersAddr))
 	for i, _ := range n.ServersAddr {
