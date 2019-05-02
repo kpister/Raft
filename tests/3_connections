@@ -7,11 +7,13 @@
 // Logs up to the leader commit index should be identical on a majority of nodes
 // Logs on all nodes should be identical or missing up to commit index
 CREATE 0.0
-ISOLATE 4
-ISOLATE 5
-SLEEP 5
+PARTITION 3
+1 2 3
+4 
+0
+SLEEP 500
 STATE
 ASSERT PARTITION
-ASSERT CLIENT_SUCCESS
+ASSERT CLIENT_FUNCTIONALITY
 ASSERT LEADER_FUNCTIONALITY
 ASSERT LOG_CONSISTENCY
