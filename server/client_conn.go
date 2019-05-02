@@ -92,7 +92,7 @@ func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntries
 				}
 			}
 		case <-timer.C:
-			log.Printf("REP SUCC:EXPIRED:%d/%d\n", nSuccess, nResp)
+			log.Printf("REP FAIL:EXPIRED:%d/%d\n", nSuccess, nResp)
 			return nSuccess, nResp, kv.ReturnCode_FAILURE
 		}
 	}
@@ -107,17 +107,16 @@ func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, err
 
 	// 1. Reply NOT_LEADER if not leader, providing hint when available
 	if n.LeaderID != n.ID {
+		log.Printf("NOT_LEADER:%d\n", n.LeaderID)
 		return &kv.GetResponse{
 			Ret:        kv.ReturnCode_FAILURE,
 			LeaderHint: n.ServersAddr[n.LeaderID],
 		}, nil
 	}
 
-	// 2. Wait until lasted commit entry is from this leader's term
-	for {
-		if n.Log[n.CommitIndex].Term == n.CurrentTerm {
-			break
-		}
+	// 2. Wait until last commit entry is from this leader's term
+	for n.Log[n.CommitIndex].Term != n.CurrentTerm {
+		time.Sleep(time.Duration(200 * time.Millisecond))
 	}
 
 	// 3. Save CommitIndex as local variable index

@@ -104,6 +104,12 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 	indexOfLastNewEntry := len(n.Log) - 1
 	if in.LeaderCommit > n.CommitIndex {
 		n.CommitIndex = min(in.LeaderCommit, int32(indexOfLastNewEntry))
+
+		log.Println("FOLLOWER COMMIT")
+		log.Printf("CommitIndex = %d\n", n.CommitIndex)
+		for _, entry := range n.Log {
+			log.Printf("%d %d %s\n", entry.Term, entry.Index, entry.Command)
+		}
 	}
 
 	// PERSIST LOG before returning with success
@@ -126,7 +132,7 @@ func (n *node) runAppendEntries(node_id int, resp chan rf.AppendEntriesResponse)
 	if (int)(n.NextIndex[node_id]) == len(n.Log) {
 		entries = make([]*rf.Entry, 0)
 	} else {
-		entries = n.Log[n.NextIndex[node_id]-1:]
+		entries = n.Log[n.NextIndex[node_id]:]
 	}
 
 	args := rf.AppendEntriesRequest{
