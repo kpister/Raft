@@ -1,0 +1,11 @@
+// No connection case
+// SAME FOR 1 connection, 2 connections, 2/2/1 partitions
+// Leaders may be elected before matrix is uploaded
+// Leaders should not be able to append entries
+// Clients should not be able to put data
+// Clients should not be able to get data
+CREATE 1.0
+SLEEP 5
+STATE
+ASSERT NOT LEADER_FUNCTIONALITY
+ASSERT NOT CLIENT_SUCCESS

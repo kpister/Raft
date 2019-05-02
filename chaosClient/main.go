@@ -172,6 +172,21 @@ func conntectServers(conf config) []cm.ChaosMonkeyClient {
 	return clients
 }
 
+func getState(clients []cm.ChaosMonkeyClient) {
+    for i := 0; i < len(clients); i++ {
+        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+        defer cancel()
+
+        res, err := clients[i].GetState(ctx, &cm.EmptyMessage{})
+        if err != nil {
+            log.Fatalf("Get state operation failed on server %v: %v\n", i, err)
+        }
+        fmt.Printf("%v\n", res.ID)
+        fmt.Printf("%v\n", res)
+    }
+
+}
+
 func sendToServers(clients []cm.ChaosMonkeyClient, mat *cm.ConnMatrix) {
 	for i := 0; i < len(clients); i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -294,6 +309,11 @@ func main() {
 		command := strings.TrimSpace(scanner.Text())
 		seperatedCommand := strings.Split(command, " ")
 		switch seperatedCommand[0] {
+        case "//":
+            continue
+        case "STATE":
+            log.Println("STATE")
+            getState(clients)
 		case "CREATE":
 			log.Println("CREATE")
 			val, _ := strconv.ParseFloat(seperatedCommand[1], 32)
