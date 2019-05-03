@@ -11,6 +11,10 @@ service KeyValueStore {
 enum ReturnCode {
     SUCCESS = 0;
     FAILURE = 1;
+    // PUT return code
+    FAILURE_DEMOTED = 2;
+    FAILURE_EXPIRED = 3;
+    SUCCESS_SEQNO = 4;
 }
 
 message GetRequest {

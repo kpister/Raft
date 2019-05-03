@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"bufio"
@@ -15,9 +15,28 @@ import (
 	"google.golang.org/grpc"
 )
 
-func messagePut(c kv.KeyValueStoreClient, key string, value string) {
-	task := servAddr + "\tPUT"
-	defer timeTrack(time.Now(), task)
+// Client is the raft kvstore client
+type Client struct {
+	kvClient kv.KeyValueStoreClient
+	conn     *grpc.ClientConn
+	clientID string
+	seqNo    int32
+	servAddr string
+}
+
+// NewClient creates a new client object
+func NewClient() *Client {
+	return &Client{
+		clientID: "client",
+		seqNo:    0,
+		servAddr: "",
+	}
+}
+
+// MessagePut sends PUT requests to a server node
+func (cl *Client) MessagePut(key string, value string) bool {
+	task := cl.servAddr + "\tPUT"
+	defer cl.timeTrack(time.Now(), task)
 	log.Printf("%s request:%s %s\n", task, key, value)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -27,26 +46,38 @@ func messagePut(c kv.KeyValueStoreClient, key string, value string) {
 		Key:      key,
 		Value:    value,
 		From:     -1,
-		ClientId: clientId,
-		SeqNo:    seqNo,
+		ClientId: cl.clientID,
+		SeqNo:    cl.seqNo,
 	}
 
-	res, err := c.Put(ctx, req)
+	res, err := cl.kvClient.Put(ctx, req)
 	if err != nil {
 		log.Printf("%s grpc failed:%v\n", task, err)
-		return
+		return false
 	}
 
-	if res.Ret == kv.ReturnCode_SUCCESS {
-		log.Printf("%s respond\n", task)
-	} else {
-		log.Printf("%s failed\n", task)
+	switch res.Ret {
+	case kv.ReturnCode_SUCCESS:
+		log.Printf("%s succeeded\n", task)
+		return true
+	case kv.ReturnCode_FAILURE_DEMOTED:
+		log.Printf("%s failed: not leader, true leader: %s\n", task, res.LeaderHint)
+		return false
+	case kv.ReturnCode_FAILURE_EXPIRED:
+		log.Printf("%s failed: AE expired\n", task)
+		return false
+	case kv.ReturnCode_SUCCESS_SEQNO:
+		log.Printf("%s succeeded: duplicated seqNo\n", task)
+		return true
+	default:
+		return false
 	}
 }
 
-func messageGet(c kv.KeyValueStoreClient, key string) string {
-	task := servAddr + "\tGET"
-	defer timeTrack(time.Now(), task)
+// MessageGet sends GET request to the server node
+func (cl *Client) MessageGet(key string) (string, bool) {
+	task := cl.servAddr + "\tGET"
+	defer cl.timeTrack(time.Now(), task)
 	log.Printf("%s request:%s\n", task, key)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -56,52 +87,64 @@ func messageGet(c kv.KeyValueStoreClient, key string) string {
 		Key: key,
 	}
 
-	res, err := c.Get(ctx, req)
+	res, err := cl.kvClient.Get(ctx, req)
 	if err != nil {
 		log.Printf("%s grpc failed:%v\n", task, err)
-		return ""
+		return "", false
 	}
 
 	if res.Ret == kv.ReturnCode_SUCCESS {
 		log.Printf("%s respond:%s\n", task, res.Value)
-	} else {
-		log.Printf("%s failed\n", task)
+		return res.Value, true
 	}
-	return res.Value
+
+	log.Printf("%s failed\n", task)
+	return "", false
 }
 
-func timeTrack(start time.Time, task string) {
+// IncrementSeqNo increments the sequence number by 1
+func (cl *Client) IncrementSeqNo() {
+	cl.seqNo++
+}
+
+// SetClientID sets the client identifier
+func (cl *Client) SetClientID(id string) {
+	cl.clientID = id
+}
+
+func (cl *Client) timeTrack(start time.Time, task string) {
 	elapsed := time.Since(start)
 	log.Printf("%s duration:%s", task, elapsed)
 }
 
-func connect() (*grpc.ClientConn, kv.KeyValueStoreClient) {
-	task := servAddr + "\tCONN"
+// Connect connects to the server with the specified server address
+func (cl *Client) Connect(servAddr string) {
+	cl.servAddr = servAddr
+	task := cl.servAddr + "\tCONN"
 	// grpc will retry in 15 ms at most 5 times when failed
 	// TODO: put parameters into config
 	opts := []grpc_retry.CallOption{
 		grpc_retry.WithBackoff(grpc_retry.BackoffLinear(time.Duration(15 * time.Millisecond))),
 		grpc_retry.WithMax(5),
 	}
-	conn, err := grpc.Dial(servAddr, grpc.WithInsecure(),
+	conn, err := grpc.Dial(cl.servAddr, grpc.WithInsecure(),
 		grpc.WithUnaryInterceptor(grpc_retry.UnaryClientInterceptor(opts...)))
 	if err != nil {
-		log.Printf("%s failed:%s\n", task, servAddr)
+		log.Printf("%s failed:%s\n", task, cl.servAddr)
 	}
 
-	log.Printf("%s connected:%s\n", task, servAddr)
+	log.Printf("%s Connected:%s\n", task, cl.servAddr)
 	kvClient := kv.NewKeyValueStoreClient(conn)
-	return conn, kvClient
-}
 
-var servAddr string
-var clientId string
-var seqNo int32 = 1
+	cl.conn = conn
+	cl.kvClient = kvClient
+}
 
 // Client commands:
 // 1. CONN host:port
 // 2. PUT key val
 // 3. GET key
+// 4. ID id
 func main() {
 	// log setup
 	f, err := os.OpenFile("log/"+time.Now().Format("2006.01.02_15:04:05.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
@@ -113,8 +156,7 @@ func main() {
 	log.SetOutput(mw)
 
 	inputReader := bufio.NewReader(os.Stdin)
-	var conn *grpc.ClientConn
-	var kvClient kv.KeyValueStoreClient
+	client := NewClient()
 	for {
 		in, _ := inputReader.ReadString('\n')
 		in = strings.TrimSpace(in)
@@ -133,12 +175,11 @@ func main() {
 				continue
 			}
 
-			servAddr = splits[1]
-			if conn != nil {
-				conn.Close()
+			if client.conn != nil {
+				client.conn.Close()
 			}
-			conn, kvClient = connect()
-			defer conn.Close()
+			client.Connect(splits[1])
+			defer client.conn.Close()
 
 		// PUT key val
 		case "PUT":
@@ -148,8 +189,8 @@ func main() {
 			}
 
 			key, val := splits[1], splits[2]
-			messagePut(kvClient, key, val)
-			seqNo++
+			client.MessagePut(key, val)
+			client.IncrementSeqNo()
 
 		// GET key
 		case "GET":
@@ -159,16 +200,17 @@ func main() {
 			}
 
 			key := splits[1]
-			messageGet(kvClient, key)
+			client.MessageGet(key)
 
-		// set client user name
-		// USERNAME username
-		case "USERNAME":
+		// set client ID
+		// ID clientID
+		case "ID":
 			if len(splits) != 2 {
 				fmt.Println("bad input")
 				continue
 			}
-			clientId = splits[1]
+
+			client.SetClientID(splits[1])
 		}
 	}
 }

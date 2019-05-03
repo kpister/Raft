@@ -24,7 +24,7 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 	if n.LeaderID != n.ID {
 		log.Printf("PUT FAILURE:NOT_LEADER:%d\n", n.LeaderID)
 		return &kv.PutResponse{
-			Ret:        kv.ReturnCode_FAILURE,
+			Ret:        kv.ReturnCode_FAILURE_DEMOTED,
 			LeaderHint: n.ServersAddr[n.LeaderID],
 		}, nil
 	}
@@ -33,8 +33,9 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 	// if yes, respond it directly
 	for i := n.CommitIndex; i > 0; i-- {
 		if n.Log[i].ClientId == in.ClientId && n.Log[i].SeqNo == in.SeqNo {
+			log.Printf("PUT client's seqNo in log: clientID %s seqNo %d\n", in.ClientId, in.SeqNo)
 			return &kv.PutResponse{
-				Ret: kv.ReturnCode_SUCCESS,
+				Ret: kv.ReturnCode_SUCCESS_SEQNO,
 			}, nil
 		}
 	}
@@ -64,7 +65,7 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 
 	deadline, _ := ctx.Deadline()
 	_, _, retCode := n.sendAppendEntries(deadline, resps, false)
-	if retCode == kv.ReturnCode_FAILURE {
+	if retCode != kv.ReturnCode_SUCCESS {
 		log.Println("PUT FAILURE:AE")
 	}
 	return &kv.PutResponse{
@@ -90,7 +91,7 @@ func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntries
 				} else if val.Reason == rf.ErrorCode_AE_OLDTERM {
 					// we have been demoted, exit and become follower
 					log.Println("REP FAIL:OLD_TERM")
-					return nSuccess, nResp, kv.ReturnCode_FAILURE
+					return nSuccess, nResp, kv.ReturnCode_FAILURE_DEMOTED
 				}
 				nResp++
 
@@ -108,7 +109,7 @@ func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntries
 			}
 		case <-timer.C:
 			log.Printf("REP FAIL:EXPIRED:%d/%d\n", nSuccess, nResp)
-			return nSuccess, nResp, kv.ReturnCode_FAILURE
+			return nSuccess, nResp, kv.ReturnCode_FAILURE_EXPIRED
 		}
 	}
 }
