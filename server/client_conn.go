@@ -114,6 +114,7 @@ func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntries
 }
 
 func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, error) {
+
 	log.Printf("GET:%s\n", in.Key)
 	log.Printf("commit index:%d\n", n.CommitIndex)
 	for _, entry := range n.Log {
@@ -132,6 +133,7 @@ func (n *node) Get(ctx context.Context, in *kv.GetRequest) (*kv.GetResponse, err
 	// 2. Wait until last commit entry is from this leader's term
 	for n.Log[n.CommitIndex].Term != n.CurrentTerm {
 		time.Sleep(time.Duration(200 * time.Millisecond))
+
 	}
 
 	// 3. Save CommitIndex as local variable index

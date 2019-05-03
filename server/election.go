@@ -142,10 +142,16 @@ func (n *node) RequestVote(ctx context.Context, req *rf.RequestVoteRequest) (*rf
 	if (n.VotedFor == -1 || n.VotedFor == req.CandidateId) && (req.LastLogTerm > n.Log[n.LastApplied].Term || (req.LastLogTerm == n.Log[n.LastApplied].Term && req.LastLogIndex >= n.LastApplied)) {
 		n.VotedFor = req.CandidateId
 		resp.VoteGranted = true
-		n.VotedFor = req.CandidateId
 		log.Printf("resp RequestVote: FROM %d: TERM:%d, MyTERM: %d: accept\n", req.CandidateId, req.Term, n.CurrentTerm)
+
+		// write to persistent storage before returning responses
+		n.persistLog()
+
 		return resp, nil
 	}
+
+	// write to persistent storage before returning responses
+	n.persistLog()
 
 	resp.VoteGranted = false
 	log.Printf("resp RequestVote: FROM %d: TERM:%d, MyTERM: %d: reject\n", req.CandidateId, req.Term, n.CurrentTerm)
