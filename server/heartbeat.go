@@ -78,6 +78,10 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 
 	// 1. Reply false if term < currentTerm (5.1)
 	if in.Term < n.CurrentTerm {
+
+		// write to persistent storage before returning responses
+		n.persistLog()
+
 		response.Success = false
 		response.Reason = rf.ErrorCode_AE_OLDTERM
 		response.Term = n.CurrentTerm
@@ -95,6 +99,10 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 	// 2. reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
 
 	if (int(in.PrevLogIndex) >= len(n.Log)) || (n.Log[in.PrevLogIndex].Term != in.PrevLogTerm) {
+
+		// write to persistent storage before returning responses
+		n.persistLog()
+
 		response.Success = false
 		response.Reason = rf.ErrorCode_AE_LOGMISMATCH
 		response.Term = n.CurrentTerm
@@ -145,10 +153,8 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 		}
 	}
 
-	// PERSIST LOG before returning with success
-	if len(leaderEntries) > 0 {
-		n.persistLog()
-	}
+	// write to persistent storage before returning responses
+	n.persistLog()
 
 	response.Success = true
 	response.Reason = rf.ErrorCode_NONE
