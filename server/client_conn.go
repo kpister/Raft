@@ -37,7 +37,7 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 	// if yes, respond it directly
 	for i := n.CommitIndex; i > 0; i-- {
 		if n.Log[i].ClientId == in.ClientId && n.Log[i].SeqNo == in.SeqNo {
-			log.Printf("PUT client's seqNo in log: clientID %s seqNo %d\n", in.ClientId, in.SeqNo)
+			log.Printf("PUT:client's seqNo in log: clientID %s seqNo %d\n", in.ClientId, in.SeqNo)
 			return &kv.PutResponse{
 				Ret: kv.ReturnCode_SUCCESS_SEQNO,
 			}, nil

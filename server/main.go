@@ -57,8 +57,8 @@ func (n *node) connectServers() {
 	// grpc will retry in 15 ms at most 5 times when failed
 	// TODO: put parameters into config
 	opts := []grpc_retry.CallOption{
-		grpc_retry.WithBackoff(grpc_retry.BackoffLinear(time.Duration(15 * time.Millisecond))),
 		grpc_retry.WithMax(5),
+		grpc_retry.WithPerRetryTimeout(150 * time.Millisecond),
 	}
 
 	for i := 0; i < len(n.ServersAddr); i++ {

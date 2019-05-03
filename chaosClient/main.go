@@ -173,17 +173,17 @@ func conntectServers(conf config) []cm.ChaosMonkeyClient {
 }
 
 func getState(clients []cm.ChaosMonkeyClient) {
-    for i := 0; i < len(clients); i++ {
-        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-        defer cancel()
+	for i := 0; i < len(clients); i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-        res, err := clients[i].GetState(ctx, &cm.EmptyMessage{})
-        if err != nil {
-            log.Fatalf("Get state operation failed on server %v: %v\n", i, err)
-        }
-        fmt.Printf("%v\n", res.ID)
-        fmt.Printf("%v\n", res)
-    }
+		res, err := clients[i].GetState(ctx, &cm.EmptyMessage{})
+		if err != nil {
+			log.Fatalf("Get state operation failed on server %v: %v\n", i, err)
+		}
+		fmt.Printf("%v\n", res.ID)
+		fmt.Printf("%v\n", res)
+	}
 
 }
 
@@ -309,11 +309,11 @@ func main() {
 		command := strings.TrimSpace(scanner.Text())
 		seperatedCommand := strings.Split(command, " ")
 		switch seperatedCommand[0] {
-        case "//":
-            continue
-        case "STATE":
-            log.Println("STATE")
-            getState(clients)
+		case "//":
+			continue
+		case "STATE":
+			log.Println("STATE")
+			getState(clients)
 		case "CREATE":
 			log.Println("CREATE")
 			val, _ := strconv.ParseFloat(seperatedCommand[1], 32)
@@ -353,6 +353,13 @@ func main() {
 			val, _ := strconv.Atoi(seperatedCommand[1])
 			copyMat(mat, oldMat)
 			createPartition(numServers, []int{val}, mat)
+		case "ASSERT":
+			switch seperatedCommand[1] {
+			case "CLIENT_FUNCTIONALITY":
+				clientFunctionality(seperatedCommand[2])
+			case "LEADER_FUNCTIONALITY":
+				leaderFunctionality(conf.ServersAddr, clients)
+			}
 		}
 	}
 
