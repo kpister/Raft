@@ -1,4 +1,4 @@
-package client
+package main
 
 import (
 	"bufio"
@@ -28,7 +28,7 @@ type Client struct {
 func NewClient() *Client {
 	return &Client{
 		clientID: "client",
-		seqNo:    0,
+		seqNo:    1,
 		servAddr: "",
 	}
 }
@@ -38,7 +38,7 @@ func (cl *Client) MessagePut(key string, value string) bool {
 	task := cl.servAddr + "\tPUT"
 	defer cl.timeTrack(time.Now(), task)
 	log.Printf("%s request:%s %s\n", task, key, value)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	// build request
@@ -87,7 +87,7 @@ func (cl *Client) MessageGet(key string) (string, bool) {
 		Key: key,
 	}
 
-	res, err := cl.kvClient.Get(ctx, req)
+	res, err := cl.kvClient.Get(ctx, req, grpc_retry.WithMax(5), grpc_retry.WithPerRetryTimeout(500*time.Millisecond))
 	if err != nil {
 		log.Printf("%s grpc failed:%v\n", task, err)
 		return "", false
@@ -124,8 +124,8 @@ func (cl *Client) Connect(servAddr string) {
 	// grpc will retry in 15 ms at most 5 times when failed
 	// TODO: put parameters into config
 	opts := []grpc_retry.CallOption{
-		grpc_retry.WithBackoff(grpc_retry.BackoffLinear(time.Duration(15 * time.Millisecond))),
 		grpc_retry.WithMax(5),
+		grpc_retry.WithPerRetryTimeout(150 * time.Millisecond),
 	}
 	conn, err := grpc.Dial(cl.servAddr, grpc.WithInsecure(),
 		grpc.WithUnaryInterceptor(grpc_retry.UnaryClientInterceptor(opts...)))

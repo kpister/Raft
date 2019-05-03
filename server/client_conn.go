@@ -11,7 +11,11 @@ import (
 
 	kv "github.com/kpister/raft/kvstore"
 	rf "github.com/kpister/raft/raft"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
+
+var fff = false
 
 func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, error) {
 	log.Printf("PUT:%s %s\n", in.Key, in.Value)
@@ -65,12 +69,19 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 
 	deadline, _ := ctx.Deadline()
 	_, _, retCode := n.sendAppendEntries(deadline, resps, false)
+
 	if retCode != kv.ReturnCode_SUCCESS {
 		log.Println("PUT FAILURE:AE")
 	}
+
+	err := (error)(nil)
+	if retCode == kv.ReturnCode_FAILURE_EXPIRED {
+		err = grpc.Errorf(codes.DeadlineExceeded, "AE EXPIRED")
+	}
+
 	return &kv.PutResponse{
 		Ret: retCode,
-	}, nil
+	}, err
 }
 
 func (n *node) sendAppendEntries(deadline time.Time, resps chan rf.AppendEntriesResponse, isGet bool) (int, int, kv.ReturnCode) {
