@@ -277,7 +277,7 @@ func main() {
 	// connect to all servers
 	clients := conntectServers(conf)
 	// send the default matrix to servers
-	sendToServers(clients, mat)
+	//sendToServers(clients, mat)
 
 	// randomizeNetwork(mat)
 
@@ -353,22 +353,39 @@ func main() {
 		case "ASSERT":
 			switch seperatedCommand[1] {
 			case "CLIENT_FUNCTIONALITY":
-				leaderid, numleaders := findActiveLeader(conf.ServersAddr, clients)
-				if numleaders == 1 {
-					clientFunctionality("localhost:800" + strconv.Itoa(leaderid))
-				} else {
-					log.Println("ERROR: CLIENT FUNC TEST FAILED DUE TO NOT 1 leader")
+				retries := 3
+				flag := false
+				for i := 0; i < retries; i++ {
+					leaderid, numleaders := findActiveLeader(conf.ServersAddr, clients)
+					if numleaders == 1 {
+						clientFunctionality("localhost:800" + strconv.Itoa(leaderid))
+						flag = true
+						break
+					}
+				}
+				if !flag {
+					log.Println("ERROR: CLIENT TEST FAILED")
 				}
 
 			case "LEADER_FUNCTIONALITY":
 				leaderFunctionality(conf.ServersAddr, clients)
 			case "LOG_CONSISTENCY":
-				leaderid, numleaders := findActiveLeader(conf.ServersAddr, clients)
-				if numleaders == 1 {
-					logConsistency(serverStates, int32(leaderid))
-				} else {
-					log.Println("ERROR: LOG CONS TEST FAILED DUE TO NOT 1 leader")
+				retries := 3
+				flag := false
+				for i := 0; i < retries; i++ {
+					leaderid, numleaders := findActiveLeader(conf.ServersAddr, clients)
+					if numleaders == 1 {
+						logConsistency(serverStates, int32(leaderid))
+						flag = true
+						break
+					}
 				}
+				if !flag {
+					log.Println("ERROR: LOG TEST FAILED")
+				}
+			case "NO_LEADER":
+				noLeaderFunctionality(conf.ServersAddr, clients)
+
 			}
 
 		}

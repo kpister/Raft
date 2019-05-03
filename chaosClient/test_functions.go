@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"strconv"
 	"time"
 
@@ -32,7 +33,7 @@ func findActiveLeader(serversAddr []string, clients []cm.ChaosMonkeyClient) (int
 	leaderIndex := -1
 	for i, servAddr := range serversAddr {
 		c.Connect(servAddr)
-		ret := c.MessagePut("key"+strconv.Itoa(i), "val"+strconv.Itoa(i))
+		ret := c.MessagePut("key"+strconv.Itoa((int)(rand.Int31n(100000))), "val"+strconv.Itoa(i))
 		c.IncrementSeqNo()
 		if ret == kv.ReturnCode_SUCCESS || ret == kv.ReturnCode_SUCCESS_SEQNO {
 			cntLeader++
