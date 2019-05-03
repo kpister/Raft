@@ -353,10 +353,24 @@ func main() {
 		case "ASSERT":
 			switch seperatedCommand[1] {
 			case "CLIENT_FUNCTIONALITY":
-				clientFunctionality(seperatedCommand[2])
+				leaderid, numleaders := findActiveLeader(conf.ServersAddr, clients)
+				if numleaders == 1 {
+					clientFunctionality("localhost:800" + strconv.Itoa(leaderid))
+				} else {
+					log.Println("ERROR: CLIENT FUNC TEST FAILED DUE TO NOT 1 leader")
+				}
+
 			case "LEADER_FUNCTIONALITY":
 				leaderFunctionality(conf.ServersAddr, clients)
+			case "LOG_CONSISTENCY":
+				leaderid, numleaders := findActiveLeader(conf.ServersAddr, clients)
+				if numleaders == 1 {
+					logConsistency(serverStates, int32(leaderid))
+				} else {
+					log.Println("ERROR: LOG CONS TEST FAILED DUE TO NOT 1 leader")
+				}
 			}
+
 		}
 	}
 

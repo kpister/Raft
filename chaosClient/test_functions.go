@@ -24,8 +24,8 @@ func getServerState(client cm.ChaosMonkeyClient) *cm.ServerState {
 	return res
 }
 
-func leaderFunctionality(serversAddr []string, clients []cm.ChaosMonkeyClient) {
-	// ASSERT leader exists
+func findActiveLeader(serversAddr []string, clients []cm.ChaosMonkeyClient) (int, int) {
+
 	c := client.NewClient()
 	c.SetClientID("testClient")
 	cntLeader := 0
@@ -39,6 +39,13 @@ func leaderFunctionality(serversAddr []string, clients []cm.ChaosMonkeyClient) {
 			leaderIndex = i
 		}
 	}
+	return leaderIndex, cntLeader
+}
+
+func leaderFunctionality(serversAddr []string, clients []cm.ChaosMonkeyClient) {
+	// ASSERT leader exists
+	leaderIndex, cntLeader := findActiveLeader(serversAddr, clients)
+
 	if cntLeader == 0 {
 		log.Fatal("ERROR: no leader")
 	} else if cntLeader > 1 {
@@ -65,27 +72,38 @@ func leaderFunctionality(serversAddr []string, clients []cm.ChaosMonkeyClient) {
 	noopCnt := 0
 	for _, client := range clients {
 		state := getServerState(client)
-		if state.State == "follower" {
-			for _, entry := range state.Log {
-				// check if leader's no-op is in the follower's log
-				if entry.Command == "NOOP$NOOP" && entry.Term == leaderTerm {
-					noopCnt++
-					break
-				}
+
+		for _, entry := range state.Log {
+			// check if leader's no-op is in the follower's log
+			if entry.Command == "NOOP$NOOP" && entry.Term == leaderTerm {
+				noopCnt++
+				break
 			}
 		}
+
 	}
 	if noopCnt <= len(serversAddr)/2 {
 		log.Fatalln("ERROR: leader's no-op is not recorded by a majority of followers")
 	}
 
-	log.Println("TEST PASSED")
+	log.Println("LEADER: TEST PASSED")
+}
+
+func noLeaderFunctionality(serversAddr []string, clients []cm.ChaosMonkeyClient) {
+	// ASSERT leader exists
+	_, cntLeader := findActiveLeader(serversAddr, clients)
+
+	if cntLeader != 0 {
+		log.Fatal("ERROR: there is a leader")
+	}
+
+	log.Println("NO LEADER: TEST PASSED")
 }
 
 func clientFunctionality(servAddr string) {
 	// create client
 	c := client.NewClient()
-	c.SetClientID("testClient")
+	c.SetClientID("client1")
 	c.Connect(servAddr)
 
 	// ASSERT client.Put success
@@ -97,7 +115,7 @@ func clientFunctionality(servAddr string) {
 	}
 
 	// -- allow retries or wait time
-	time.Sleep(time.Duration(300 * time.Millisecond))
+	time.Sleep(time.Duration(700 * time.Millisecond))
 
 	// ASSERT client.Get success
 	retVal, ret := c.MessageGet(firstKey)
@@ -115,6 +133,9 @@ func clientFunctionality(servAddr string) {
 		log.Fatalln("ERROR: second GET failed")
 	}
 
+	// -- allow retries or wait time
+	time.Sleep(time.Duration(700 * time.Millisecond))
+
 	// ASSERT client.Get receives the new value
 	retVal, ret = c.MessageGet(firstKey)
 	if ret != kv.ReturnCode_SUCCESS && ret != kv.ReturnCode_SUCCESS_SEQNO {
@@ -124,7 +145,7 @@ func clientFunctionality(servAddr string) {
 		log.Fatalf("ERROR: second GET response not matched: returned %s, expect %s\n", retVal, secondVal)
 	}
 
-	log.Println("TEST PASSED")
+	log.Println("CLIENT: TEST PASSED")
 }
 
 func getState(clients []cm.ChaosMonkeyClient, states []*cm.ServerState) {
@@ -210,6 +231,7 @@ func logConsistency(states []*cm.ServerState, leaderid int32) {
 	}
 
 	assert(cnt >= len(states)/2+1, "ERROR: MAJORITY LOGS DOESN't MATCH")
+	log.Println("LOG: TEST PASSED")
 
 }
 
