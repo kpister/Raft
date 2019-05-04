@@ -72,10 +72,6 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 		return response, nil
 	}
 
-	// update the current state based on incoming things
-	n.LeaderID = in.LeaderId
-	n.CurrentTerm = max(n.CurrentTerm, in.Term)
-
 	// 1. Reply false if term < currentTerm (5.1)
 	if in.Term < n.CurrentTerm {
 
@@ -95,6 +91,10 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 	}
 	n.State = "follower"
 	n.resetTimer("append entries newer term")
+
+	// update leader id after we know incoming term is >= our term
+	n.LeaderID = in.LeaderId
+	n.CurrentTerm = in.Term
 
 	// 2. reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
 

@@ -155,10 +155,11 @@ func deisolateNode(previous map[key]float32, mat *cm.ConnMatrix) {
 	}
 }
 
-func conntectServers(conf config) []cm.ChaosMonkeyClient {
+func conntectServers(conf config) ([]cm.ChaosMonkeyClient, []*grpc.ClientConn) {
 
 	numServers := len(conf.ServersAddr)
 	clients := make([]cm.ChaosMonkeyClient, numServers)
+	conns := make([]*grpc.ClientConn, numServers)
 
 	for i := 0; i < numServers; i++ {
 		conn, err := grpc.Dial(conf.ServersAddr[i], grpc.WithInsecure())
@@ -167,9 +168,10 @@ func conntectServers(conf config) []cm.ChaosMonkeyClient {
 		}
 
 		clients[i] = cm.NewChaosMonkeyClient(conn)
+		conns[i] = conn
 	}
 
-	return clients
+	return clients, conns
 }
 
 // func getState(clients []cm.ChaosMonkeyClient) {
@@ -275,7 +277,7 @@ func main() {
 	mat := createMatrix(numServers, 0.0)
 	oldMat := createMatrix(numServers, 0.0) // to store the state before partition
 	// connect to all servers
-	clients := conntectServers(conf)
+	clients, conns := conntectServers(conf)
 	// send the default matrix to servers
 	//sendToServers(clients, mat)
 
@@ -351,7 +353,7 @@ func main() {
 			copyMat(mat, oldMat)
 			createPartition(numServers, []int{val}, mat)
 		case "ISOLATELEADER":
-			log.Println("ISOLATE")
+			log.Println("ISOLATELEADER")
 			copyMat(mat, oldMat)
 			leaderid, found := findActiveLeaderWithRetries(3, conf.ServersAddr, clients)
 			if found {
@@ -387,6 +389,9 @@ func main() {
 		}
 	}
 
+	for _, con := range conns {
+		con.Close()
+	}
 	// cmClient := cm.NewChaosMonkeyClient(conn)
 	// uploadMatrix(cmClient, "mat1.txt")
 	// updateValue(cmClient, 0, 1, 0.5)
