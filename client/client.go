@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"log"
+	"math/rand"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/retry"
@@ -23,8 +24,9 @@ type Client struct {
 func NewClient() *Client {
 	return &Client{
 		clientID: "client",
-		seqNo:    1,
+		seqNo:    rand.Int31n(1000),
 		servAddr: "",
+		conn:     nil,
 	}
 }
 
@@ -114,6 +116,10 @@ func (cl *Client) timeTrack(start time.Time, task string) {
 
 // Connect connects to the server with the specified server address
 func (cl *Client) Connect(servAddr string) {
+	if cl.conn != nil {
+		cl.conn.Close()
+	}
+
 	cl.servAddr = servAddr
 	task := cl.servAddr + "\tCONN"
 	// grpc will retry in 15 ms at most 5 times when failed
@@ -133,4 +139,9 @@ func (cl *Client) Connect(servAddr string) {
 
 	cl.conn = conn
 	cl.kvClient = kvClient
+}
+
+// Close closes the connection
+func (cl *Client) Close() {
+	cl.conn.Close()
 }
