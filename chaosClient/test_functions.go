@@ -26,7 +26,6 @@ func getServerState(client cm.ChaosMonkeyClient) *cm.ServerState {
 }
 
 func findActiveLeader(serversAddr []string, clients []cm.ChaosMonkeyClient) (int, int) {
-
 	c := client.NewClient()
 	c.SetClientID("testClient")
 	cntLeader := 0
@@ -40,6 +39,7 @@ func findActiveLeader(serversAddr []string, clients []cm.ChaosMonkeyClient) (int
 			leaderIndex = i
 		}
 	}
+	c.Close()
 	return leaderIndex, cntLeader
 }
 
@@ -75,6 +75,7 @@ func leaderFunctionality(serversAddr []string, clients []cm.ChaosMonkeyClient) {
 	if ret != kv.ReturnCode_SUCCESS && ret != kv.ReturnCode_SUCCESS_SEQNO {
 		log.Fatalln("ERROR: first PUT failed")
 	}
+	c.Close()
 
 	leaderState := getServerState(clients[leaderIndex])
 	foundUpdate := false
@@ -168,6 +169,7 @@ func clientFunctionality(servAddr string) {
 	}
 
 	log.Println("CLIENT: TEST PASSED")
+	c.Close()
 }
 
 func getState(clients []cm.ChaosMonkeyClient, states []*cm.ServerState) {
