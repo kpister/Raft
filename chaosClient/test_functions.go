@@ -55,11 +55,22 @@ func leaderFunctionality(serversAddr []string, clients []cm.ChaosMonkeyClient) {
 	log.Printf("leader is %s\n", serversAddr[leaderIndex])
 
 	// ASSERT leader can update log
+	testKey := "key" + strconv.Itoa((int)(rand.Int31n(1000)))
+	testVal := "val" + strconv.Itoa((int)(rand.Int31n(1000)))
+	c := client.NewClient()
+	c.SetClientID("client_leaderFunc")
+	c.Connect(serversAddr[leaderIndex])
+	ret := c.MessagePut(testKey, testVal)
+	c.IncrementSeqNo()
+	if ret != kv.ReturnCode_SUCCESS && ret != kv.ReturnCode_SUCCESS_SEQNO {
+		log.Fatalln("ERROR: first PUT failed")
+	}
+
 	leaderState := getServerState(clients[leaderIndex])
 	foundUpdate := false
 	for _, entry := range leaderState.Log {
 		// check if the entry leader has put is in log
-		if entry.Command == "key"+strconv.Itoa(leaderIndex)+"$"+"val"+strconv.Itoa(leaderIndex) {
+		if entry.Command == testKey+"$"+testVal {
 			foundUpdate = true
 			break
 		}
