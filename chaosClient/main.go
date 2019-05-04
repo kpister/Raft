@@ -248,6 +248,8 @@ func init() {
 
 func main() {
 
+	rand.Seed(time.Now().UTC().UnixNano())
+
 	var conf config
 	// a map to save matrix configurations
 	// matStorage := make(map[string]cm.ConnMatrix)
@@ -361,6 +363,8 @@ func main() {
 			} else {
 				log.Println("ERROR: ISOLATE_LEADER FAILED")
 			}
+			log.Println("Original leader was:: ")
+			log.Println(leaderid)
 		case "ASSERT":
 			switch seperatedCommand[1] {
 			case "CLIENT_FUNCTIONALITY":

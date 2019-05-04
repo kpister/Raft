@@ -25,7 +25,7 @@ type Client struct {
 func NewClient() *Client {
 	return &Client{
 		clientID: "client",
-		seqNo:    rand.Int31n(1000),
+		seqNo:    rand.Int31n(1000000000),
 		servAddr: "",
 		conn:     nil,
 	}
@@ -127,7 +127,7 @@ func (cl *Client) Connect(servAddr string) {
 	// TODO: put parameters into config
 	opts := []grpc_retry.CallOption{
 		grpc_retry.WithMax(5),
-		grpc_retry.WithPerRetryTimeout(150 * time.Millisecond),
+		grpc_retry.WithPerRetryTimeout(500 * time.Millisecond),
 		grpc_retry.WithCodes(codes.DeadlineExceeded, codes.Unavailable, codes.Canceled),
 	}
 	conn, err := grpc.Dial(cl.servAddr, grpc.WithInsecure(),
@@ -146,4 +146,8 @@ func (cl *Client) Connect(servAddr string) {
 // Close closes the connection
 func (cl *Client) Close() {
 	cl.conn.Close()
+}
+
+func (cl *Client) GetSeqNo() (int32, string) {
+	return cl.seqNo, cl.clientID
 }

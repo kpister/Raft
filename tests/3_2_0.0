@@ -1,4 +1,4 @@
-// 3 connection case
+// 3/2 connection case
 // SAME FOR 4 connections, 5 connections
 // Leader should be elected
 // Leader should be able to append entries
@@ -6,15 +6,16 @@
 // Client should be able to get data from leader
 // Logs up to the leader commit index should be identical on a majority of nodes
 // Logs on all nodes should be identical or missing up to commit index
-CREATE 0.2
-PARTITION 3
+
+CREATE 0.0
+
+PARTITION 2
 1 2 3
-4 
-0
-SLEEP 500
+4 0
+
+SLEEP 1000
 
 STATE
 
 ASSERT LEADER_FUNCTIONALITY
-ASSERT CLIENT_FUNCTIONALITY
 ASSERT LOG_CONSISTENCY

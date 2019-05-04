@@ -5,7 +5,7 @@
 // Clients should not be able to put data
 // Clients should not be able to get data
 CREATE 1.0
-SLEEP 500
+SLEEP 1000
 
 STATE
 

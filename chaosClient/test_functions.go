@@ -35,6 +35,8 @@ func findActiveLeader(serversAddr []string, clients []cm.ChaosMonkeyClient) (int
 		ret := c.MessagePut("key"+strconv.Itoa((int)(rand.Int31n(100000))), "val"+strconv.Itoa(i))
 		c.IncrementSeqNo()
 		if ret == kv.ReturnCode_SUCCESS || ret == kv.ReturnCode_SUCCESS_SEQNO {
+			seq, id := c.GetSeqNo()
+			log.Printf("REQUEST: SEQ::%d, client %v\n", seq, id)
 			cntLeader++
 			leaderIndex = i
 		}
@@ -90,6 +92,8 @@ func leaderFunctionality(serversAddr []string, clients []cm.ChaosMonkeyClient) {
 		log.Fatalln("ERROR: leader cannot update log")
 	}
 
+	time.Sleep(2 * time.Second)
+
 	// -- The leader's no-op has been recorded by a majority of followers
 	leaderTerm := leaderState.CurrentTerm
 	noopCnt := 0
@@ -138,7 +142,7 @@ func clientFunctionality(servAddr string) {
 	}
 
 	// -- allow retries or wait time
-	time.Sleep(time.Duration(700 * time.Millisecond))
+	time.Sleep(time.Duration(2 * time.Second))
 
 	// ASSERT client.Get success
 	retVal, ret := c.MessageGet(firstKey)
@@ -157,7 +161,7 @@ func clientFunctionality(servAddr string) {
 	}
 
 	// -- allow retries or wait time
-	time.Sleep(time.Duration(700 * time.Millisecond))
+	time.Sleep(time.Duration(2 * time.Second))
 
 	// ASSERT client.Get receives the new value
 	retVal, ret = c.MessageGet(firstKey)
