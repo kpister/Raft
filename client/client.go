@@ -9,6 +9,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	kv "github.com/kpister/raft/kvstore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
 // Client is the raft kvstore client
@@ -127,6 +128,7 @@ func (cl *Client) Connect(servAddr string) {
 	opts := []grpc_retry.CallOption{
 		grpc_retry.WithMax(5),
 		grpc_retry.WithPerRetryTimeout(150 * time.Millisecond),
+		grpc_retry.WithCodes(codes.DeadlineExceeded, codes.Unavailable, codes.Canceled),
 	}
 	conn, err := grpc.Dial(cl.servAddr, grpc.WithInsecure(),
 		grpc.WithUnaryInterceptor(grpc_retry.UnaryClientInterceptor(opts...)))
