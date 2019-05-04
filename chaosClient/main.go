@@ -367,7 +367,7 @@ func main() {
 					clientFunctionality("localhost:800" + strconv.Itoa(leaderid))
 
 				} else {
-					log.Println("ERROR: CLIENT TEST FAILED")
+					log.Println("ERROR: CLIENT TEST FAILED: No Leader found")
 				}
 
 			case "LEADER_FUNCTIONALITY":
@@ -377,7 +377,7 @@ func main() {
 				if found {
 					logConsistency(serverStates, int32(leaderid))
 				} else {
-					log.Println("ERROR: CLIENT TEST FAILED")
+					log.Println("ERROR: LOG TEST FAILED: No Leader found")
 				}
 			case "NO_LEADER":
 				noLeaderFunctionality(conf.ServersAddr, clients)
