@@ -43,6 +43,16 @@ func findActiveLeader(serversAddr []string, clients []cm.ChaosMonkeyClient) (int
 	return leaderIndex, cntLeader
 }
 
+func findActiveLeaderWithRetries(retries int, serversAddr []string, clients []cm.ChaosMonkeyClient) (int, bool) {
+	for i := 0; i < retries; i++ {
+		leaderid, numleaders := findActiveLeader(serversAddr, clients)
+		if numleaders == 1 {
+			return leaderid, true
+		}
+	}
+	return 0, false
+}
+
 func leaderFunctionality(serversAddr []string, clients []cm.ChaosMonkeyClient) {
 	// ASSERT leader exists
 	leaderIndex, cntLeader := findActiveLeader(serversAddr, clients)

@@ -350,38 +350,34 @@ func main() {
 			val, _ := strconv.Atoi(seperatedCommand[1])
 			copyMat(mat, oldMat)
 			createPartition(numServers, []int{val}, mat)
+		case "ISOLATELEADER":
+			log.Println("ISOLATE")
+			copyMat(mat, oldMat)
+			leaderid, found := findActiveLeaderWithRetries(3, conf.ServersAddr, clients)
+			if found {
+				createPartition(numServers, []int{leaderid}, mat)
+			} else {
+				log.Println("ERROR: ISOLATE_LEADER FAILED")
+			}
 		case "ASSERT":
 			switch seperatedCommand[1] {
 			case "CLIENT_FUNCTIONALITY":
-				retries := 3
-				flag := false
-				for i := 0; i < retries; i++ {
-					leaderid, numleaders := findActiveLeader(conf.ServersAddr, clients)
-					if numleaders == 1 {
-						clientFunctionality("localhost:800" + strconv.Itoa(leaderid))
-						flag = true
-						break
-					}
-				}
-				if !flag {
+				leaderid, found := findActiveLeaderWithRetries(3, conf.ServersAddr, clients)
+				if found {
+					clientFunctionality("localhost:800" + strconv.Itoa(leaderid))
+
+				} else {
 					log.Println("ERROR: CLIENT TEST FAILED")
 				}
 
 			case "LEADER_FUNCTIONALITY":
 				leaderFunctionality(conf.ServersAddr, clients)
 			case "LOG_CONSISTENCY":
-				retries := 3
-				flag := false
-				for i := 0; i < retries; i++ {
-					leaderid, numleaders := findActiveLeader(conf.ServersAddr, clients)
-					if numleaders == 1 {
-						logConsistency(serverStates, int32(leaderid))
-						flag = true
-						break
-					}
-				}
-				if !flag {
-					log.Println("ERROR: LOG TEST FAILED")
+				leaderid, found := findActiveLeaderWithRetries(3, conf.ServersAddr, clients)
+				if found {
+					logConsistency(serverStates, int32(leaderid))
+				} else {
+					log.Println("ERROR: CLIENT TEST FAILED")
 				}
 			case "NO_LEADER":
 				noLeaderFunctionality(conf.ServersAddr, clients)
