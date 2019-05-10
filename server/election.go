@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
 	"time"
 
 	rf "github.com/kpister/raft/raft"
@@ -13,11 +15,24 @@ type vote struct {
 	NodeID  int
 }
 
+func (n *node) beginElection(done chan string) bool {
+	t := time.Now()
+	res := n._beginElection(done)
+	elapsed := time.Since(t)
+	if res {
+		go n.election_time_f.WriteString(fmt.Sprintf("SUCC %s\n", elapsed))
+	} else {
+		go n.election_time_f.WriteString(fmt.Sprintf("FAIL %s\n", elapsed))
+	}
+
+	return res
+}
+
 // beginElection calls requestVote asynchronously to the other nodes
 // it's simultaneously listening on votes response channel and done channel
 // done cannel tells beginElection when to finish the election
 // if the node got a majority of accepted or rejected votes, it ends the election by itself
-func (n *node) beginElection(done chan string) bool {
+func (n *node) _beginElection(done chan string) bool {
 	n.State = "candidate"
 	n.CurrentTerm++
 	n.VotedFor = -1
@@ -89,8 +104,15 @@ func (n *node) beginElection(done chan string) bool {
 	}
 }
 
+func timeTrack(start time.Time, f *os.File) {
+	elapsed := time.Since(start)
+	go f.WriteString(fmt.Sprintf("%s\n", elapsed))
+}
+
 // runRequestVote sends requestVote to other nodes, and puts the result in voteChan
 func (n *node) runRequestVote(nodeID int, voteChan chan vote) {
+	defer timeTrack(time.Now(), n.rv_time_f)
+
 	req := &rf.RequestVoteRequest{
 		Term:         n.CurrentTerm,
 		CandidateId:  n.ID,

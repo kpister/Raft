@@ -163,6 +163,7 @@ func (n *node) AppendEntries(ctx context.Context, in *rf.AppendEntriesRequest) (
 }
 
 func (n *node) runAppendEntries(node_id int, resp chan rf.AppendEntriesResponse) {
+	defer timeTrack(time.Now(), n.ae_time_f)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(n.HeartbeatTimeout)*time.Millisecond)
 	defer cancel()

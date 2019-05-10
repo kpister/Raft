@@ -51,6 +51,11 @@ type node struct {
 	reset chan string
 	// to be used to persist log
 	Logfile string
+
+	rv_time_f           *os.File
+	ae_time_f           *os.File
+	election_time_f     *os.File
+	consensus_ae_time_f *os.File
 }
 
 func (n *node) connectServers() {
@@ -123,6 +128,11 @@ func (n *node) initialize() {
 		dummyEntry := rf.Entry{Term: 0, Index: 0, Command: "DUMMY$DUMMY"}
 		n.Log = append(n.Log, &dummyEntry)
 	}
+
+	n.rv_time_f, _ = os.OpenFile("rv_"+strconv.Itoa((int)(server.ID))+".time", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	n.ae_time_f, _ = os.OpenFile("ae_"+strconv.Itoa((int)(server.ID))+".time", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	n.election_time_f, _ = os.OpenFile("election_"+strconv.Itoa((int)(server.ID))+".time", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	n.consensus_ae_time_f, _ = os.OpenFile("consensus_ae_"+strconv.Itoa((int)(server.ID))+".time", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 }
 
 var (

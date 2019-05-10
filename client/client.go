@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"math/rand"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/retry"
@@ -14,7 +16,7 @@ import (
 
 // Client is the raft kvstore client
 type Client struct {
-	kvClient kv.KeyValueStoreClient
+	kvClient []kv.KeyValueStoreClient
 	conn     *grpc.ClientConn
 	clientID string
 	seqNo    int32
@@ -33,6 +35,14 @@ func NewClient() *Client {
 
 // MessagePut sends PUT requests to a server node
 func (cl *Client) MessagePut(key string, value string) kv.ReturnCode {
+	return cl._MessagePut(key, value, 0, -1)
+}
+
+func (cl *Client) _MessagePut(key string, value string, grpcConnID int, seqNumber int32) kv.ReturnCode {
+	if seqNumber == -1 {
+		seqNumber = cl.seqNo
+	}
+
 	task := cl.servAddr + "\tPUT"
 	defer cl.timeTrack(time.Now(), task)
 	log.Printf("%s request:%s %s\n", task, key, value)
@@ -45,10 +55,10 @@ func (cl *Client) MessagePut(key string, value string) kv.ReturnCode {
 		Value:    value,
 		From:     -1,
 		ClientId: cl.clientID,
-		SeqNo:    cl.seqNo,
+		SeqNo:    seqNumber,
 	}
 
-	res, err := cl.kvClient.Put(ctx, req)
+	res, err := cl.kvClient[grpcConnID].Put(ctx, req)
 	if err != nil {
 		log.Printf("%s grpc failed:%v\n", task, err)
 		return kv.ReturnCode_FAILURE
@@ -74,6 +84,10 @@ func (cl *Client) MessagePut(key string, value string) kv.ReturnCode {
 
 // MessageGet sends GET request to the server node
 func (cl *Client) MessageGet(key string) (string, kv.ReturnCode) {
+	return cl._MessageGet(key, 0)
+}
+
+func (cl *Client) _MessageGet(key string, grpcConnIdx int) (string, kv.ReturnCode) {
 	task := cl.servAddr + "\tGET"
 	defer cl.timeTrack(time.Now(), task)
 	log.Printf("%s request:%s\n", task, key)
@@ -85,7 +99,7 @@ func (cl *Client) MessageGet(key string) (string, kv.ReturnCode) {
 		Key: key,
 	}
 
-	res, err := cl.kvClient.Get(ctx, req, grpc_retry.WithMax(5), grpc_retry.WithPerRetryTimeout(500*time.Millisecond))
+	res, err := cl.kvClient[grpcConnIdx].Get(ctx, req, grpc_retry.WithMax(5), grpc_retry.WithPerRetryTimeout(500*time.Millisecond))
 	if err != nil {
 		log.Printf("%s grpc failed:%v\n", task, err)
 		return "", kv.ReturnCode_FAILURE
@@ -115,8 +129,7 @@ func (cl *Client) timeTrack(start time.Time, task string) {
 	log.Printf("%s duration:%s", task, elapsed)
 }
 
-// Connect connects to the server with the specified server address
-func (cl *Client) Connect(servAddr string) {
+func (cl *Client) _Connect(servAddr string) *grpc.ClientConn {
 	if cl.conn != nil {
 		cl.conn.Close()
 	}
@@ -135,12 +148,25 @@ func (cl *Client) Connect(servAddr string) {
 	if err != nil {
 		log.Printf("%s failed:%s\n", task, cl.servAddr)
 	}
-
 	log.Printf("%s Connected:%s\n", task, cl.servAddr)
-	kvClient := kv.NewKeyValueStoreClient(conn)
 
-	cl.conn = conn
-	cl.kvClient = kvClient
+	return conn
+}
+
+// Connect connects to the server with the specified server address, and creates a single grpc connection
+func (cl *Client) Connect(servAddr string) {
+	cl.conn = cl._Connect(servAddr)
+	cl.kvClient = make([]kv.KeyValueStoreClient, 0)
+	cl.kvClient = append(cl.kvClient, kv.NewKeyValueStoreClient(cl.conn))
+}
+
+// ConnectN connects to the server with the specified server address, and creates N grpc connections
+// for concurrent grpc requests
+func (cl *Client) ConnectN(servAddr string, NumGrpcConn int) {
+	cl.conn = cl._Connect(servAddr)
+	for i := 0; i < NumGrpcConn; i++ {
+		cl.kvClient = append(cl.kvClient, kv.NewKeyValueStoreClient(cl.conn))
+	}
 }
 
 // Close closes the connection
@@ -148,6 +174,66 @@ func (cl *Client) Close() {
 	cl.conn.Close()
 }
 
+// GetSeqNo gets clients's current sequence number
 func (cl *Client) GetSeqNo() (int32, string) {
 	return cl.seqNo, cl.clientID
+}
+
+// runGetRequest issues GET request, and puts response into resps channel no matter it's success or failed
+// arg command is "key"
+func (cl *Client) runGetRequest(command string, grpcConnIdx int, resps chan bool) {
+	cl._MessageGet(command, grpcConnIdx)
+	resps <- true
+}
+
+// runPutRequest issues PUT request, and put repsonse into resps channel
+// it will retry at most 5 times on failures
+// arg command is "key$val"
+func (cl *Client) runPutRequest(command string, grpcConnIdx int, resps chan bool, seqNumber int32) {
+	splits := strings.Split(command, "$")
+	key, val := splits[0], splits[1]
+	for i := 0; i < 5; i++ {
+		ret := cl._MessagePut(key, val, grpcConnIdx, seqNumber)
+		if ret == kv.ReturnCode_SUCCESS || ret == kv.ReturnCode_SUCCESS_SEQNO {
+			resps <- true
+			return
+		}
+	}
+}
+
+// Benchmark measures GET and PUT operation performance
+// args command: "PUT key$val" or "GET key"
+func Benchmark(command string, leaderAddr string, nClients int, maxConns int, duration time.Duration) int {
+	// command is "PUT key$val" or "GET key"
+	splits := strings.SplitN(command, " ", 2)
+	op, command := splits[0], splits[1]
+
+	resps := make(chan bool, nClients*maxConns)
+	timer := time.NewTimer(duration)
+	seqNumber := (int32)(rand.Int31n(1000000000))
+	for i := 0; i < nClients; i++ {
+		c := NewClient()
+		c.SetClientID("benchmark" + strconv.Itoa(i))
+		defer c.Close()
+
+		c.ConnectN(leaderAddr, maxConns)
+		for j := 0; j < maxConns; j++ {
+			if op == "GET" {
+				go c.runGetRequest(command, j, resps)
+			} else {
+				go c.runPutRequest(command, j, resps, seqNumber)
+				seqNumber++
+			}
+		}
+	}
+
+	nResps := 0
+	for {
+		select {
+		case <-timer.C:
+			return nResps
+		case <-resps:
+			nResps++
+		}
+	}
 }
