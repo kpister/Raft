@@ -2,8 +2,10 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -16,20 +18,23 @@ import (
 
 // Client is the raft kvstore client
 type Client struct {
-	kvClient []kv.KeyValueStoreClient
-	conn     *grpc.ClientConn
-	clientID string
-	seqNo    int32
-	servAddr string
+	kvClient  []kv.KeyValueStoreClient
+	conn      *grpc.ClientConn
+	clientID  string
+	seqNo     int32
+	servAddr  string
+	timeLogFp *os.File
 }
 
 // NewClient creates a new client object
 func NewClient() *Client {
 	return &Client{
-		clientID: "client",
-		seqNo:    rand.Int31n(1000000000),
-		servAddr: "",
-		conn:     nil,
+		clientID:  "client",
+		seqNo:     rand.Int31n(1000000000),
+		servAddr:  "",
+		conn:      nil,
+		kvClient:  make([]kv.KeyValueStoreClient, 0),
+		timeLogFp: nil,
 	}
 }
 
@@ -126,7 +131,10 @@ func (cl *Client) SetClientID(id string) {
 
 func (cl *Client) timeTrack(start time.Time, task string) {
 	elapsed := time.Since(start)
-	log.Printf("%s duration:%s", task, elapsed)
+	log.Printf("%s duration:%s\n", task, elapsed)
+	if cl.timeLogFp != nil {
+		cl.timeLogFp.WriteString(fmt.Sprintf("%s duration:%s\n", task, elapsed))
+	}
 }
 
 func (cl *Client) _Connect(servAddr string) *grpc.ClientConn {
@@ -179,6 +187,11 @@ func (cl *Client) GetSeqNo() (int32, string) {
 	return cl.seqNo, cl.clientID
 }
 
+// SetTimeLog sets the log file for timeTrack
+func (cl *Client) SetTimeLog(timeLogFp *os.File) {
+	cl.timeLogFp = timeLogFp
+}
+
 // runGetRequest issues GET request, and puts response into resps channel no matter it's success or failed
 // arg command is "key"
 func (cl *Client) runGetRequest(command string, grpcConnIdx int, resps chan bool) {
@@ -203,7 +216,7 @@ func (cl *Client) runPutRequest(command string, grpcConnIdx int, resps chan bool
 
 // Benchmark measures GET and PUT operation performance
 // args command: "PUT key$val" or "GET key"
-func Benchmark(command string, leaderAddr string, nClients int, maxConns int, duration time.Duration) int {
+func Benchmark(command string, leaderAddr string, nClients int, maxConns int, duration time.Duration, timeLogFp *os.File) int {
 	// command is "PUT key$val" or "GET key"
 	splits := strings.SplitN(command, " ", 2)
 	op, command := splits[0], splits[1]
@@ -213,6 +226,7 @@ func Benchmark(command string, leaderAddr string, nClients int, maxConns int, du
 	seqNumber := (int32)(rand.Int31n(1000000000))
 	for i := 0; i < nClients; i++ {
 		c := NewClient()
+		c.SetTimeLog(timeLogFp)
 		c.SetClientID("benchmark" + strconv.Itoa(i))
 		defer c.Close()
 

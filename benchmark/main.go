@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -23,10 +24,12 @@ type config struct {
 	KeySize     int
 	ValSize     int
 	NumEntries  int
-	operation   string
+	Operation   string
 }
 
+var conf config
 var benchmarkFile string
+var timeLogDir string
 
 func _findLeader(serversAddr []string) (int, int) {
 	c := client.NewClient()
@@ -55,16 +58,15 @@ func findLeader(serversAddr []string) (int, bool) {
 }
 
 func init() {
+	rand.Seed(time.Now().UTC().UnixNano())
+
 	flag.StringVar(&benchmarkFile, "config", "benchmark.json", "benchmark configuration")
+	flag.StringVar(&timeLogDir, "time_log_dir", "time_log/", "benchmark log director")
+	flag.Parse()
 }
 
 // RunBenchmark runs measurement by benchmarkFile
 func main() {
-	rand.Seed(time.Now().UTC().UnixNano())
-	var conf config
-
-	flag.Parse()
-
 	benchmarkFile, _ = filepath.Abs(benchmarkFile)
 	configData, err := ioutil.ReadFile(benchmarkFile)
 	if err != nil {
@@ -73,6 +75,13 @@ func main() {
 	err = json.Unmarshal(configData, &conf)
 	if err != nil {
 		log.Fatal("Unmarshal config file error.")
+	}
+
+	// log setup
+	os.Mkdir(timeLogDir, 0700)
+	timeLogFp, err := os.OpenFile(timeLogDir+conf.Operation+"_"+time.Now().Format("2006.01.02_15:04:05.time"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatalf("Open log file error: %v\n", err)
 	}
 
 	leaderID, leadFound := findLeader(conf.ServersAddr)
@@ -84,9 +93,16 @@ func main() {
 
 	for i := 0; i < conf.NumEntries; i++ {
 		// command "PUT key$val" or "GET key"
-		key := fmt.Sprintf("%0"+strconv.Itoa(conf.KeySize)+"d", i)
-		val := fmt.Sprintf("%0"+strconv.Itoa(conf.ValSize)+"d", i)
-		command := conf.operation + " " + key + "$" + val
-		client.Benchmark(command, conf.ServersAddr[leaderID], conf.NumClients, conf.NumConns, time.Duration(conf.Duration)*time.Second)
+		command := conf.Operation + " "
+		if conf.Operation == "PUT" {
+			key := fmt.Sprintf("%0"+strconv.Itoa(conf.KeySize)+"d", i)
+			val := fmt.Sprintf("%0"+strconv.Itoa(conf.ValSize)+"d", i)
+			command += key + "$" + val
+		} else {
+			key := fmt.Sprintf("%0"+strconv.Itoa(conf.KeySize)+"d", i)
+			command += key
+		}
+		fmt.Println(command)
+		client.Benchmark(command, conf.ServersAddr[leaderID], conf.NumClients, conf.NumConns, time.Duration(conf.Duration)*time.Second, timeLogFp)
 	}
 }
