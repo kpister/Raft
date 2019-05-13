@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"strconv"
@@ -168,6 +169,9 @@ func readConfig(configFile string) {
 }
 
 func main() {
+
+	rand.Seed(time.Now().UTC().UnixNano())
+
 	// log setup
 	f, err := os.OpenFile(*logDir+strconv.Itoa((int)(server.ID))+"_"+time.Now().Format("2006.01.02_15:04:05.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
