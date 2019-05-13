@@ -18,11 +18,11 @@ type vote struct {
 func (n *node) beginElection(done chan string) bool {
 	t := time.Now()
 	res := n._beginElection(done)
-	elapsed := time.Since(t)
+	elapsed := int64(time.Since(t) / time.Millisecond)
 	if res {
-		go n.election_time_f.WriteString(fmt.Sprintf("SUCC %s\n", elapsed))
+		go n.election_time_f.WriteString(fmt.Sprintf("SUCC %d\n", elapsed))
 	} else {
-		go n.election_time_f.WriteString(fmt.Sprintf("FAIL %s\n", elapsed))
+		go n.election_time_f.WriteString(fmt.Sprintf("FAIL %d\n", elapsed))
 	}
 
 	return res
@@ -105,8 +105,9 @@ func (n *node) _beginElection(done chan string) bool {
 }
 
 func timeTrack(start time.Time, f *os.File) {
-	elapsed := time.Since(start)
-	go f.WriteString(fmt.Sprintf("%s\n", elapsed))
+	elapsed := int64(time.Since(start) / time.Millisecond)
+
+	go f.WriteString(fmt.Sprintf("%d\n", elapsed))
 }
 
 // runRequestVote sends requestVote to other nodes, and puts the result in voteChan

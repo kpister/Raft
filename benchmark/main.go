@@ -84,15 +84,16 @@ func main() {
 		log.Fatalf("Open log file error: %v\n", err)
 	}
 
-	leaderID, leadFound := findLeader(conf.ServersAddr)
-	if !leadFound {
-		log.Fatal("Failed to find leader.")
-	}
-
-	log.Printf("Leader: %s\n", conf.ServersAddr[leaderID])
-
 	for i := 0; i < conf.NumEntries; i++ {
 		// command "PUT key$val" or "GET key"
+
+		leaderID, leadFound := findLeader(conf.ServersAddr)
+		if !leadFound {
+			log.Fatal("Failed to find leader.")
+		}
+
+		log.Printf("Leader: %s\n", conf.ServersAddr[leaderID])
+
 		command := conf.Operation + " "
 		if conf.Operation == "PUT" {
 			key := fmt.Sprintf("%0"+strconv.Itoa(conf.KeySize)+"d", i)

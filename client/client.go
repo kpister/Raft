@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/retry"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	kv "github.com/kpister/raft/kvstore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -49,7 +49,7 @@ func (cl *Client) _MessagePut(key string, value string, grpcConnID int, seqNumbe
 	}
 
 	task := cl.servAddr + "\tPUT"
-	defer cl.timeTrack(time.Now(), task)
+
 	log.Printf("%s request:%s %s\n", task, key, value)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -63,6 +63,8 @@ func (cl *Client) _MessagePut(key string, value string, grpcConnID int, seqNumbe
 		SeqNo:    seqNumber,
 	}
 
+	t := time.Now()
+
 	res, err := cl.kvClient[grpcConnID].Put(ctx, req)
 	if err != nil {
 		log.Printf("%s grpc failed:%v\n", task, err)
@@ -71,16 +73,23 @@ func (cl *Client) _MessagePut(key string, value string, grpcConnID int, seqNumbe
 
 	switch res.Ret {
 	case kv.ReturnCode_SUCCESS:
+		// ONLY Write to output if it succeeded
 		log.Printf("%s succeeded\n", task)
+		cl.timeTrack(t, task)
 		return res.Ret
 	case kv.ReturnCode_FAILURE_DEMOTED:
 		log.Printf("%s failed: not leader, true leader: %s\n", task, res.LeaderHint)
+		// set most recent leader to the leader hint
+		log.Printf("Leader changed from to %s", res.LeaderHint)
+		mostRecentLeaderAddr = res.LeaderHint
 		return res.Ret
 	case kv.ReturnCode_FAILURE_EXPIRED:
 		log.Printf("%s failed: AE expired\n", task)
 		return res.Ret
 	case kv.ReturnCode_SUCCESS_SEQNO:
+		// ONLY Write to output if it succeeded
 		log.Printf("%s succeeded: duplicated seqNo\n", task)
+		cl.timeTrack(t, task)
 		return res.Ret
 	default:
 		return kv.ReturnCode_FAILURE
@@ -130,10 +139,10 @@ func (cl *Client) SetClientID(id string) {
 }
 
 func (cl *Client) timeTrack(start time.Time, task string) {
-	elapsed := time.Since(start)
-	log.Printf("%s duration:%s\n", task, elapsed)
+	elapsed := int64(time.Since(start) / time.Millisecond)
+	log.Printf("%s duration:%d\n", task, elapsed)
 	if cl.timeLogFp != nil {
-		cl.timeLogFp.WriteString(fmt.Sprintf("%s duration:%s\n", task, elapsed))
+		cl.timeLogFp.WriteString(fmt.Sprintf("%s duration:%d\n", task, elapsed))
 	}
 }
 
@@ -170,8 +179,8 @@ func (cl *Client) Connect(servAddr string) {
 
 // ConnectN connects to the server with the specified server address, and creates N grpc connections
 // for concurrent grpc requests
-func (cl *Client) ConnectN(servAddr string, NumGrpcConn int) {
-	cl.conn = cl._Connect(servAddr)
+func (cl *Client) ConnectN(NumGrpcConn int) {
+	cl.conn = cl._Connect(mostRecentLeaderAddr)
 	for i := 0; i < NumGrpcConn; i++ {
 		cl.kvClient = append(cl.kvClient, kv.NewKeyValueStoreClient(cl.conn))
 	}
@@ -214,9 +223,18 @@ func (cl *Client) runPutRequest(command string, grpcConnIdx int, resps chan bool
 	}
 }
 
+var mostRecentLeaderAddr string
+
 // Benchmark measures GET and PUT operation performance
 // args command: "PUT key$val" or "GET key"
 func Benchmark(command string, leaderAddr string, nClients int, maxConns int, duration time.Duration, timeLogFp *os.File) int {
+
+	// set most recent leader to what is passed in
+	mostRecentLeaderAddr = leaderAddr
+
+	var conns []*Client
+	defer closeAllConns(conns)
+
 	// command is "PUT key$val" or "GET key"
 	splits := strings.SplitN(command, " ", 2)
 	op, command := splits[0], splits[1]
@@ -226,11 +244,13 @@ func Benchmark(command string, leaderAddr string, nClients int, maxConns int, du
 	seqNumber := (int32)(rand.Int31n(1000000000))
 	for i := 0; i < nClients; i++ {
 		c := NewClient()
+		conns = append(conns, c)
+
 		c.SetTimeLog(timeLogFp)
 		c.SetClientID("benchmark" + strconv.Itoa(i))
-		defer c.Close()
+		// defer c.Close()
 
-		c.ConnectN(leaderAddr, maxConns)
+		c.ConnectN(maxConns)
 		for j := 0; j < maxConns; j++ {
 			if op == "GET" {
 				go c.runGetRequest(command, j, resps)
@@ -241,6 +261,8 @@ func Benchmark(command string, leaderAddr string, nClients int, maxConns int, du
 		}
 	}
 
+	log.Println("FINISHED ISSUING ALL THE REQURESTS, WAITING FOR REPLES")
+
 	nResps := 0
 	for {
 		select {
@@ -249,5 +271,11 @@ func Benchmark(command string, leaderAddr string, nClients int, maxConns int, du
 		case <-resps:
 			nResps++
 		}
+	}
+}
+
+func closeAllConns(conns []*Client) {
+	for _, con := range conns {
+		con.Close()
 	}
 }
