@@ -105,10 +105,10 @@ func (n *node) initialize() {
 
 	n.reset = make(chan string, 1)
 
-	// not needed if already defined in config file
-	n.FollowerMax = 300
-	n.FollowerMin = 150 // i feel this should be 5-10x the heartbeat
-	n.HeartbeatTimeout = 30
+	// // not needed if already defined in config file
+	// n.FollowerMax = 300
+	// n.FollowerMin = 150 // i feel this should be 5-10x the heartbeat
+	// n.HeartbeatTimeout = 30
 
 	n.Logfile = "persistantLog_" + strconv.Itoa((int)(n.ID))
 
