@@ -157,6 +157,7 @@ func (n *node) RequestVote(ctx context.Context, req *rf.RequestVoteRequest) (*rf
 	// 1. Reply false if term < currentTerm
 	if req.Term < n.CurrentTerm {
 		resp.VoteGranted = false
+		n.VotedFor = -1
 		log.Printf("resp RequestVote: FROM %d: TERM:%d, MyTERM: %d: reject smaller term\n", req.CandidateId, req.Term, n.CurrentTerm)
 		return resp, nil
 	}
@@ -177,6 +178,7 @@ func (n *node) RequestVote(ctx context.Context, req *rf.RequestVoteRequest) (*rf
 	n.persistLog()
 
 	resp.VoteGranted = false
+	n.VotedFor = -1
 	log.Printf("resp RequestVote: FROM %d: TERM:%d, MyTERM: %d: reject\n", req.CandidateId, req.Term, n.CurrentTerm)
 	return resp, nil
 }
