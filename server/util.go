@@ -10,9 +10,10 @@ import (
 Returns true if the message should be dropped otherwise returns false
 */
 func (n *node) dropMessageChaos(from int32) bool {
-	if from == -1 {
+	if from < 0 || from >= int32(len(n.ServersAddr)) || n.ID < 0 || n.ID > int32(len(n.ServersAddr)) {
 		return false
 	}
+
 	random0to1 := rand.Float32()
 	// n.Chaos is the probability with which we want to drop the value
 	// 0 - no drop 1 - drop every message
