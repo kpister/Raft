@@ -27,6 +27,13 @@ func (n *node) Put(ctx context.Context, in *kv.PutRequest) (*kv.PutResponse, err
 	// 1. reply NOT_LEADER if not leader, providing hint when available
 	if n.LeaderID != n.ID {
 		log.Printf("PUT FAILURE:NOT_LEADER:%d\n", n.LeaderID)
+		if n.LeaderID < 0 || n.LeaderID >= int32(len(n.ServersAddr)) {
+			return &kv.PutResponse{
+				Ret:        kv.ReturnCode_FAILURE_DEMOTED,
+				LeaderHint: n.ServersAddr[0],
+			}, nil
+		}
+
 		return &kv.PutResponse{
 			Ret:        kv.ReturnCode_FAILURE_DEMOTED,
 			LeaderHint: n.ServersAddr[n.LeaderID],
