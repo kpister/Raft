@@ -220,6 +220,16 @@ func fakeLeaderNotReturnResult(states []*cm.ServerState, leaderid int32) {
 
 }
 
+// assert that every node has the exact same logs
+func assertStable(states []*cm.ServerState) bool {
+    for i := 0; i < len(states) - 1; i++ {
+        okay := compareTwoServerLogsStrict(states[i], states[i+1])
+        if !okay {
+            return false
+        }
+    }
+    return true
+}
 // assume we somehow know the "true" leader
 func logConsistency(states []*cm.ServerState, leaderid int32) {
 
@@ -264,6 +274,21 @@ func logConsistency(states []*cm.ServerState, leaderid int32) {
 }
 
 // HELPERS
+
+
+// Returns true if logs are identical; false otherwise
+func compareTwoServerLogsStrict(server1 *cm.ServerState, server2 *cm.ServerState) bool {
+    if len(server1.Log) != len(server2.Log) {
+        return false
+    }
+
+    for i := 0; i < len(server1.Log); i++ {
+        if !isLogEntrySame(server1.Log[i], server2.Log[i]) {
+            return false
+        }
+    }
+    return true
+}
 
 // RETURNS true if logs are okay otherwise return false
 // last index is the last entry upto which we need to check
