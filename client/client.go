@@ -274,6 +274,58 @@ func Benchmark(command string, leaderAddr string, nClients int, maxConns int, du
 	}
 }
 
+// BenchmarkOpsPerS measures GET and PUT operation performance
+// args command: "PUT key$val" or "GET key"
+func BenchmarkOpsPerS(command string, leaderAddr string, nClients int, numRequests int, duration time.Duration, timeLogFp *os.File, opsLogFp *os.File) int {
+
+	// set most recent leader to what is passed in
+	mostRecentLeaderAddr = leaderAddr
+
+	var conns []*Client
+	defer closeAllConns(conns)
+
+	// command is "PUT key$val" or "GET key"
+	splits := strings.SplitN(command, " ", 2)
+	op, command := splits[0], splits[1]
+
+	resps := make(chan bool, numRequests)
+	timer := time.NewTimer(duration)
+
+	for i := 0; i < nClients; i++ {
+		c := NewClient()
+		conns = append(conns, c)
+		c.SetTimeLog(timeLogFp)
+		c.SetClientID("benchmark" + strconv.Itoa(i))
+		c.Connect(mostRecentLeaderAddr)
+	}
+
+	for i := 0; i < numRequests; i++ {
+
+		c := conns[i%nClients]
+
+		if op == "GET" {
+			go c.runGetRequest(command, 0, resps)
+		} else {
+			go c.runPutRequest(command, 0, resps, c.seqNo)
+			c.seqNo++
+		}
+
+	}
+
+	log.Println("FINISHED ISSUING ALL THE REQURESTS, WAITING FOR REPLES")
+
+	nResps := 0
+	for {
+		select {
+		case <-timer.C:
+			opsLogFp.WriteString(fmt.Sprintf("Operations:%d\n", nResps))
+			return nResps
+		case <-resps:
+			nResps++
+		}
+	}
+}
+
 func closeAllConns(conns []*Client) {
 	for _, con := range conns {
 		con.Close()

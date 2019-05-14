@@ -24,6 +24,7 @@ type config struct {
 	KeySize     int
 	ValSize     int
 	NumEntries  int
+	NumRequests int
 	Operation   string
 }
 
@@ -61,7 +62,7 @@ func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
 
 	flag.StringVar(&benchmarkFile, "config", "benchmark.json", "benchmark configuration")
-	flag.StringVar(&timeLogDir, "time_log_dir", "time_log/", "benchmark log director")
+	flag.StringVar(&timeLogDir, "time_log_dir", "time_log_servers/", "benchmark log director")
 	flag.Parse()
 }
 
@@ -79,7 +80,11 @@ func main() {
 
 	// log setup
 	os.Mkdir(timeLogDir, 0700)
-	timeLogFp, err := os.OpenFile(timeLogDir+conf.Operation+"_"+time.Now().Format("2006.01.02_15:04:05.time"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	fileName := conf.Operation + "_" + strconv.Itoa(conf.NumClients) + "_" + strconv.Itoa(len(conf.ServersAddr))
+	timeLogFp, err := os.OpenFile(timeLogDir+fileName, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+
+	opsLogFp, err := os.OpenFile(timeLogDir+"ops", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+
 	if err != nil {
 		log.Fatalf("Open log file error: %v\n", err)
 	}
@@ -104,6 +109,7 @@ func main() {
 			command += key
 		}
 		fmt.Println(command)
-		client.Benchmark(command, conf.ServersAddr[leaderID], conf.NumClients, conf.NumConns, time.Duration(conf.Duration)*time.Second, timeLogFp)
+		// client.Benchmark(command, conf.ServersAddr[leaderID], conf.NumClients, conf.NumConns, time.Duration(conf.Duration)*time.Second, timeLogFp)
+		client.BenchmarkOpsPerS(command, conf.ServersAddr[leaderID], conf.NumClients, conf.NumRequests, time.Duration(conf.Duration)*time.Second, timeLogFp, opsLogFp)
 	}
 }
