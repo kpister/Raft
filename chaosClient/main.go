@@ -312,6 +312,20 @@ func main() {
 		switch seperatedCommand[0] {
 		case "//":
 			continue
+        case "LOOP":
+            log.Println("LOOP")
+            val, _ := strconv.Atoi(seperatedCommand[1])
+            mtime := time.Now()
+            for {
+                getState(clients, serverStates)
+                _, found := findActiveLeaderWithRetries(3, conf.ServersAddr, clients)
+                log.Printf("LEADER FOUND: %v\n", found)
+				if found && assertStable(serverStates) {
+                    log.Printf("LOOP ENDED in %v\n", time.Since(mtime))
+                    break
+                }
+                time.Sleep(time.Duration(val) * time.Millisecond)
+            }
 		case "STATE":
 			log.Println("STATE")
 			getState(clients, serverStates)
